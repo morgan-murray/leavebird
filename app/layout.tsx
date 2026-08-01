@@ -8,7 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = incoming.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
   const image = `${protocol}://${host}/og.png`;
   const title = "Clocked Off — Timesheets without the fuss";
-  const description = "A playful, private timesheet and leave planner that saves everything in your browser.";
+  const description = "A playful, private timesheet and leave planner that securely syncs across your devices.";
   return { title, description, icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" }, openGraph: { title, description, images: [{ url: image, width: 1741, height: 910 }] }, twitter: { card: "summary_large_image", title, description, images: [image] } };
 }
 
