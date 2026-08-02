@@ -237,7 +237,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
 function Deals({ kind }: { kind: "weekend" | "holiday" }) {
   const deals = kind === "weekend" ? [
     { tag: "WEEKEND IDEA", icon: "🎟", title: "Comedy, cocktails & no calendar invites", copy: "Hunt down a last-minute night out near you.", source: "Wowcher", url: "https://www.wowcher.co.uk/deals/things-to-do-activities" },
-    { tag: "LOCAL ESCAPE", icon: "🧗", title: "Try something you’ll mention on Monday", copy: "Activities, food and small adventures for two.", source: "Groupon", url: "https://www.groupon.co.uk/local/things-to-do" },
+    { tag: "LOCAL ESCAPE", icon: "🧗", title: "Try something you’ll mention on Monday", copy: "Activities, food and small adventures for two.", source: "Groupon", url: "https://www.groupon.co.uk/vouchers/things-to-do" },
   ] : [
     { tag: "PACK LIGHT", icon: "🌊", title: "Turn three leave days into a proper escape", copy: "Browse spontaneous city and beach breaks.", source: "lastminute.com", url: "https://www.lastminute.com/holidays/" },
     { tag: "DEAL SPOTTED", icon: "✈", title: "The long weekend is calling", copy: "Fresh travel deals and delightfully cheap flights.", source: "HolidayPirates", url: "https://www.holidaypirates.com/" },
