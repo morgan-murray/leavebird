@@ -1,5 +1,16 @@
 # vinext-starter
 
+## Postgres login branch
+
+This branch runs as a standard Next.js application on a Node.js host. It adds email/password accounts, HTTP-only database sessions, and per-user timesheet storage in Postgres.
+
+1. Copy `.env.example` to `.env` and set a strong Postgres password in the shell as `POSTGRES_PASSWORD`.
+2. Start Postgres with `docker compose up -d postgres`.
+3. Install packages with `npm install`.
+4. Run `npm run db:migrate`, then `npm run dev`.
+
+In production, serve the app over HTTPS so the secure session cookie is protected in transit. Existing `clocked-off-timesheet-v1` browser records are imported automatically when an account has no server-side data yet.
+
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
 Drizzle support.

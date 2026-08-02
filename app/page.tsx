@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 type Mode = "clock" | "hours";
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
 type Leave = { id: string; start: string; end: string; label: string };
 type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode };
+type User = { id: string; email: string };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
@@ -40,6 +41,9 @@ function datesInRange(start: string, end: string) {
 export default function Home() {
   const [store, setStore] = useState<Store>(initialStore);
   const [loaded, setLoaded] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [tab, setTab] = useState<"week" | "history" | "leave">("week");
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -48,10 +52,36 @@ export default function Home() {
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    try { const saved = localStorage.getItem(STORAGE_KEY); if (saved) setStore({ ...initialStore, ...JSON.parse(saved) }); } catch { /* keep a safe blank sheet */ }
-    setLoaded(true);
+    fetch("/api/auth/me").then(response => response.json()).then(({ user: account }) => setUser(account)).finally(() => setAuthReady(true));
   }, []);
-  useEffect(() => { if (loaded) { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); setSavedFlash(true); const id = setTimeout(() => setSavedFlash(false), 900); return () => clearTimeout(id); } }, [store, loaded]);
+  useEffect(() => {
+    if (!user) { setLoaded(false); return; }
+    let cancelled = false;
+    (async () => {
+      const response = await fetch("/api/data");
+      if (!response.ok) return;
+      const result = await response.json() as { data: Store | null; hasData: boolean };
+      let next = result.data ? { ...initialStore, ...result.data } : initialStore;
+      if (!result.hasData) {
+        try { const legacy = localStorage.getItem(STORAGE_KEY); if (legacy) next = { ...initialStore, ...JSON.parse(legacy) }; } catch { /* leave the new account blank */ }
+      }
+      if (!cancelled) { setStore(next); setLoaded(true); }
+      if (!result.hasData) await fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
+    })().catch(() => setSaveStatus("error"));
+    return () => { cancelled = true; };
+  }, [user]);
+  useEffect(() => {
+    if (!loaded || !user) return;
+    setSaveStatus("saving"); setSavedFlash(true);
+    const id = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(store) });
+        setSaveStatus(response.ok ? "saved" : "error");
+      } catch { setSaveStatus("error"); }
+      setSavedFlash(false);
+    }, 500);
+    return () => clearTimeout(id);
+  }, [store, loaded, user]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const weekTotal = days.reduce((sum, day) => sum + netHours(store.entries[keyOf(day)] || emptyEntry(), store.mode), 0);
@@ -91,6 +121,11 @@ export default function Home() {
     const first = mondayOf(calendarMonth); return Array.from({ length: 42 }, (_, i) => addDays(first, i));
   }, [calendarMonth]);
 
+  if (!authReady) return <div className="auth-loading"><span className="brand-mark">↗</span><p>Opening your timesheet…</p></div>;
+  if (!user) return <AuthScreen onAuthenticated={setUser} />;
+
+  const signOut = async () => { await fetch("/api/auth/logout", { method: "POST" }); setUser(null); setStore(initialStore); };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -102,7 +137,8 @@ export default function Home() {
           <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button>
           <button className={tab === "leave" ? "active" : ""} onClick={() => setTab("leave")}>Time off</button>
         </nav>
-        <div className={`save-state ${savedFlash ? "saving" : ""}`}><span>●</span> Saved locally</div>
+        <div className={`save-state ${savedFlash ? "saving" : ""} ${saveStatus === "error" ? "failed" : ""}`}><span>●</span> {saveStatus === "saving" ? "Saving…" : saveStatus === "error" ? "Save failed" : "Saved securely"}</div>
+        <div className="account-menu"><span>{user.email}</span><button onClick={signOut}>Sign out</button></div>
       </header>
 
       <section className="hero">
@@ -144,7 +180,7 @@ export default function Home() {
           <div className="panel history-panel"><div className="panel-heading"><div><p className="eyebrow coral">YOUR HISTORY</p><h2>Weeks on record</h2></div><span className="fy-pill">FY {fyStart.getFullYear()}/{String(fyEnd.getFullYear()).slice(-2)}</span></div>
             {historicalWeeks.length ? <div className="history-list">{historicalWeeks.map(([monday, total]) => <button key={monday} onClick={() => { setWeekStart(fromKey(monday)); setTab("week"); }}><span><b>{fullDate(fromKey(monday))}</b><small>Week ending {shortDate(addDays(fromKey(monday), 6))}</small></span><strong>{fmt(total)}</strong><i>→</i></button>)}</div> : <div className="empty-state"><span>✦</span><h3>Your history starts here</h3><p>Add some hours to this week and they’ll appear here automatically.</p><button onClick={() => setTab("week")}>Log this week</button></div>}
           </div>
-          <aside className="panel data-panel"><p className="eyebrow">LOCAL & PRIVATE</p><h3>Your records live in this browser.</h3><p>No login, no cloud account. Download a backup whenever you like, then import it on another device.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
+          <aside className="panel data-panel"><p className="eyebrow">SYNCED & PRIVATE</p><h3>Your records follow you.</h3><p>Sign in on another browser or device and your timesheets and leave will be waiting. You can still download a personal backup whenever you like.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
         </section>
         <Deals kind="weekend" />
       </>}
@@ -165,9 +201,37 @@ export default function Home() {
         <Deals kind="holiday" />
       </>}
 
-      <footer><span><b>Clocked Off</b> · your time stays yours</span><span>Stored only in this browser · No account required</span></footer>
+      <footer><span><b>Clocked Off</b> · your time stays yours</span><span>Securely synced to your account</span></footer>
     </main>
   );
+}
+
+function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/auth/${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+      const result = await response.json() as { user?: User; error?: string };
+      if (!response.ok || !result.user) setError(result.error || "Something went wrong. Please try again."); else onAuthenticated(result.user);
+    } catch { setError("Could not reach the server. Please try again."); }
+    finally { setBusy(false); }
+  };
+
+  return <main className="auth-shell">
+    <section className="auth-story"><div className="auth-brand"><span className="brand-mark">↗</span><b>Clocked Off</b></div><div><p className="eyebrow">YOUR TIME, ANYWHERE</p><h1>Get the week done.<br /><em>Plan the escape.</em></h1><p>Your timesheets, history and leave plans — waiting on every device.</p></div><div className="auth-stamps"><span>☀ LEAVE</span><span>✓ HOURS</span><span>↗ WEEKEND</span></div></section>
+    <section className="auth-panel"><form onSubmit={submit}><p className="eyebrow coral">{mode === "login" ? "WELCOME BACK" : "MAKE IT YOURS"}</p><h2>{mode === "login" ? "Sign in to your time." : "Create your account."}</h2><p className="auth-copy">{mode === "login" ? "Your records are securely synced across your browsers and devices." : "Your existing browser timesheet will be brought into your new account automatically."}</p>
+      <label>Email address<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></label>
+      <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={mode === "register" ? 10 : undefined} value={password} onChange={event => setPassword(event.target.value)} placeholder={mode === "register" ? "At least 10 characters" : "Your password"} /></label>
+      {error && <p className="auth-error" role="alert">{error}</p>}<button className="auth-submit" disabled={busy}>{busy ? "One moment…" : mode === "login" ? "Sign in ↗" : "Create account ↗"}</button>
+      <p className="auth-switch">{mode === "login" ? "New to Clocked Off?" : "Already have an account?"} <button type="button" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>{mode === "login" ? "Create one" : "Sign in"}</button></p>
+    </form></section>
+  </main>;
 }
 
 function Deals({ kind }: { kind: "weekend" | "holiday" }) {
