@@ -26,6 +26,7 @@ const hoursBetween = (start: string, end: string) => {
 };
 const netHours = (entry: Entry, _mode: Mode) => Math.max(0, (Number(entry.hours) || 0) - (Number(entry.breakHours) || 0));
 const fmt = (value: number) => `${Number(value.toFixed(2))}h`;
+const fmtMinutes = (hours: number) => `${Number((hours * 60).toFixed(1))}m`;
 const formattedHours = (value: number, format: HoursFormat) => {
   if (format === "decimal") return Number(value.toFixed(2)).toString();
   const minutes = Math.round(value * 60); return `${Math.floor(minutes / 60)}:${pad(minutes % 60)}`;
@@ -212,19 +213,19 @@ export default function Home() {
       {tab !== "leave" && (
         <section className="mode-bar">
           <div><span className="tiny-label">RECORD BY</span><div className="segmented" role="group" aria-label="Time entry mode"><button className={store.mode === "clock" ? "selected" : ""} onClick={() => setStore(s => ({ ...s, mode: "clock" }))}>Start & finish</button><button className={store.mode === "hours" ? "selected" : ""} onClick={() => setStore(s => ({ ...s, mode: "hours" }))}>Number of hours</button></div></div>
-          <p>Breaks are subtracted from each day. Decimal hours welcome — try 0.5 for 30 minutes.</p>
+          <p>Breaks are entered in minutes and subtracted from each day. Number-of-hours mode accepts decimals.</p>
         </section>
       )}
 
       {tab === "week" && <>
         <section className={`panel sheet-panel ${store.mode}`}>
           <div className="panel-heading"><div><p className="eyebrow coral">WEEKLY TIMESHEET</p><h2>{shortDate(weekStart)} — {fullDate(addDays(weekStart, 6))}</h2></div><div className="week-nav"><button onClick={() => changeWeek(-1)} aria-label="Previous week">←</button><button onClick={() => setWeekStart(mondayOf(new Date()))}>Today</button><button onClick={() => changeWeek(1)} aria-label="Next week">→</button></div></div>
-          <div className="sheet-head"><span>Day</span><span>{store.mode === "clock" ? "Start" : "Hours"}</span>{store.mode === "clock" && <span>Finish</span>}<span>Break</span><span>Note</span><span>Total</span></div>
+          <div className="sheet-head"><span>Day</span><span>{store.mode === "clock" ? "Start" : "Hours"}</span>{store.mode === "clock" && <span>Finish</span>}<span>Break (min)</span><span>Note</span><span>Total</span></div>
           <div className="sheet-rows">
             {days.map(day => { const key = keyOf(day); const entry = store.entries[key] || emptyEntry(); const weekend = [0, 6].includes(day.getDay()); return <div className={`day-row ${weekend ? "weekend" : ""}`} key={key}>
               <div className="day-name"><b>{day.toLocaleDateString("en-GB", { weekday: "short" })}</b><span>{day.getDate()}</span></div>
               {store.mode === "clock" ? <><label><span className="mobile-only">Start</span><input type="time" value={entry.start} onChange={e => updateClockEntry(key, { start: e.target.value })} /></label><label><span className="mobile-only">Finish</span><input type="time" value={entry.end} onChange={e => updateClockEntry(key, { end: e.target.value })} /></label></> : <label><span className="mobile-only">Hours</span><input type="number" min="0" step="0.25" value={entry.hours || ""} placeholder="0" onChange={e => updateEntry(key, { hours: Number(e.target.value) })} /></label>}
-              <label><span className="mobile-only">Break</span><input type="number" min="0" step="0.25" value={entry.breakHours || ""} placeholder="0" onChange={e => updateEntry(key, { breakHours: Number(e.target.value) })} /></label>
+              <label><span className="mobile-only">Break (min)</span><input type="number" min="0" step="1" value={entry.breakHours ? Number((entry.breakHours * 60).toFixed(2)) : ""} placeholder="0" aria-label={`Break in minutes for ${day.toLocaleDateString("en-GB", { weekday: "long" })}`} onChange={e => updateEntry(key, { breakHours: Number(e.target.value) / 60 })} /></label>
               <label className="note-field"><span className="mobile-only">Note</span><input value={entry.note} placeholder={weekend ? "Weekend plans?" : "What did you work on?"} onChange={e => updateEntry(key, { note: e.target.value })} /></label>
               <strong className="row-total">{fmt(netHours(entry, store.mode))}</strong>
             </div>; })}
@@ -240,12 +241,12 @@ export default function Home() {
             {!currentSubmission && weekChecks.missing.length > 0 && <p className="missing-note">Review: no hours recorded for {weekChecks.missing.join(", ")}.</p>}
           </div>
           <div className="completion-tools">
-            <div className="total-strip"><div><span>Gross hours</span><strong>{fmt(weekGross)}</strong></div><div><span>Breaks</span><strong>{fmt(weekBreaks)}</strong></div><div><span>Payable</span><strong>{fmt(weekTotal)}</strong></div></div>
+            <div className="total-strip"><div><span>Gross hours</span><strong>{fmt(weekGross)}</strong></div><div><span>Breaks</span><strong>{fmtMinutes(weekBreaks)}</strong></div><div><span>Payable</span><strong>{fmt(weekTotal)}</strong></div></div>
             <div className="format-choice"><span>Employer format</span><div className="segmented" role="group" aria-label="Employer hours format"><button className={store.hoursFormat === "decimal" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "decimal" }))}>Decimal</button><button className={store.hoursFormat === "hhmm" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "hhmm" }))}>HH:MM</button></div></div>
             <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
           </div>
         </section>
-        <Deals kind="weekend" />
+        <WeekendReward unlocked={Boolean(currentSubmission)} />
       </>}
 
       {tab === "history" && <>
@@ -255,7 +256,7 @@ export default function Home() {
           </div>
           <aside className="panel data-panel"><p className="eyebrow">SYNCED & PRIVATE</p><h3>Your records follow you.</h3><p>Sign in on another browser or device and your timesheets and leave will be waiting. You can still download a personal backup whenever you like.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
         </section>
-        <Deals kind="weekend" />
+        <WeekendReward unlocked />
       </>}
 
       {tab === "leave" && <>
@@ -305,6 +306,47 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
       <p className="auth-switch">{mode === "login" ? "New to Leavebird?" : "Already have an account?"} <button type="button" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>{mode === "login" ? "Create an account!" : "Sign in"}</button></p>
     </form></section>
   </main>;
+}
+
+function WeekendReward({ unlocked }: { unlocked: boolean }) {
+  const offers = [
+    {
+      type: "Comedy & brunch", title: "Big Belly Comedy Club", location: "South Bank, London",
+      price: "From £24.95", saving: "Up to 50% off", availability: "Weekend sessions listed", source: "Groupon",
+      url: "https://www.groupon.co.uk/deals/big-belly-comedy-club-1", image: "/deals/comedy.jpg",
+      imageAlt: "A comedian performing with a microphone", credit: "Photo: James Cridland · CC BY 2.0",
+    },
+    {
+      type: "Art & culture", title: "Moco Museum entry", location: "Marble Arch, London",
+      price: "From £9", saving: "Up to 43% off", availability: "Open Fri–Sat until 7pm", source: "Wowcher",
+      url: "https://www.wowcher.co.uk/deal/london/40974160/moco-museum-entry-ticket", image: "/deals/moco.jpg",
+      imageAlt: "Inside Moco Museum in London", credit: "Photo: Matt Brown · CC BY 2.0",
+    },
+    {
+      type: "Sightseeing", title: "Thames sightseeing cruise", location: "Central London piers",
+      price: "From £7", saving: "Up to 32% off", availability: "Runs Sat & Sun · every 20–40 min", source: "Wowcher",
+      url: "https://www.wowcher.co.uk/deal/london/activities-entertainment/river-cruises/45329263/thames-river-sightseeing-cruise-tickets", image: "/deals/thames.jpg",
+      imageAlt: "A City Cruises boat on the River Thames", credit: "Photo: Cnbrb · public domain",
+    },
+  ];
+
+  if (!unlocked) return <section className="weekend-teaser" aria-label="Weekend ideas locked until submission">
+    <div className="teaser-icon" aria-hidden="true">✦</div>
+    <div><p className="eyebrow">YOUR REWARD IS WAITING</p><h2>Weekend ideas unlock when the week is done.</h2><p>Mark this timesheet as submitted and we’ll reveal three timely ways to make your time off count.</p></div>
+    <span className="teaser-lock">LOCKED · FOR NOW</span>
+  </section>;
+
+  return <section className="weekend-reward">
+    <div className="reward-celebration">
+      <div><p className="eyebrow">TIMESHEET DONE</p><h2>Weekend unlocked.</h2><p>You clocked the hours. Here are three ways to spend the good ones.</p></div>
+      <span className="reward-stamp" aria-hidden="true">OFF<br />DUTY</span>
+    </div>
+    <div className="reward-heading"><div><p className="eyebrow coral">THIS WEEKEND · LONDON</p><h3>Something fun, sorted.</h3></div><span>Prices checked 2 Aug · availability can change · handy links, not sponsored</span></div>
+    <div className="reward-cards">{offers.map(offer => <article key={offer.title} className="reward-card">
+      <div className="reward-image"><img src={offer.image} alt={offer.imageAlt} /><small>{offer.credit}</small><span>{offer.saving}</span></div>
+      <div className="reward-card-body"><p className="reward-type">{offer.type}</p><h4>{offer.title}</h4><p className="reward-location">⌖ {offer.location}</p><div className="reward-meta"><strong>{offer.price}</strong><span>✓ {offer.availability}</span></div><a href={offer.url} target="_blank" rel="noreferrer">View deal on {offer.source} <i>↗</i></a></div>
+    </article>)}</div>
+  </section>;
 }
 
 function Deals({ kind }: { kind: "weekend" | "holiday" }) {
