@@ -4,15 +4,21 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 type Mode = "clock" | "hours";
 type HoursFormat = "decimal" | "hhmm";
+type BankHolidayDivision = "england-and-wales" | "scotland" | "northern-ireland";
+type BankHoliday = { title: string; date: string };
+type BankHolidayData = Record<BankHolidayDivision, BankHoliday[]>;
+type LeaveOpportunity = { id: string; title: string; start: string; end: string; totalDays: number; leaveDays: number };
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
 type Leave = { id: string; start: string; end: string; label: string };
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
-type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; submissions: Record<string, Submission> };
+type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission> };
 type User = { id: string; email: string };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
-const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", submissions: {} };
+const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {} };
+const emptyBankHolidays: BankHolidayData = { "england-and-wales": [], scotland: [], "northern-ireland": [] };
+const divisionLabels: Record<BankHolidayDivision, string> = { "england-and-wales": "England & Wales", scotland: "Scotland", "northern-ireland": "Northern Ireland" };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -57,6 +63,25 @@ function datesInRange(start: string, end: string) {
   return dates;
 }
 
+function buildLeaveOpportunities(events: BankHoliday[], booked: Set<string>, today = new Date()): LeaveOpportunity[] {
+  const holidays = new Set(events.map(event => event.date));
+  const windows = new Map<string, LeaveOpportunity>();
+  events.filter(event => event.date >= keyOf(today)).forEach(event => {
+    const holiday = fromKey(event.date);
+    const start = addDays(holiday, -((holiday.getDay() + 1) % 7));
+    const end = addDays(holiday, (7 - holiday.getDay()) % 7);
+    const startKey = keyOf(start); const endKey = keyOf(end);
+    if (startKey < keyOf(today)) return;
+    const range = datesInRange(startKey, endKey);
+    const leaveDays = range.filter(key => { const day = fromKey(key).getDay(); return ![0, 6].includes(day) && !holidays.has(key) && !booked.has(key); }).length;
+    if (leaveDays < 1 || leaveDays > 5) return;
+    const id = `${startKey}:${endKey}`;
+    const existing = windows.get(id);
+    windows.set(id, { id, title: existing ? `${existing.title} + ${event.title}` : event.title, start: startKey, end: endKey, totalDays: range.length, leaveDays });
+  });
+  return [...windows.values()].sort((a, b) => a.start.localeCompare(b.start) || (b.totalDays / b.leaveDays) - (a.totalDays / a.leaveDays)).slice(0, 3);
+}
+
 function TimeField({ id, label, dayName, value, onChange }: { id: string; label: "Start" | "Finish"; dayName: string; value: string; onChange: (value: string) => void }) {
   return <div className="time-field">
     <label className="time-field-label" htmlFor={id}>{label}</label>
@@ -81,10 +106,20 @@ export default function Home() {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [employerUrlDraft, setEmployerUrlDraft] = useState("");
   const [employerUrlError, setEmployerUrlError] = useState("");
+  const [bankHolidays, setBankHolidays] = useState<BankHolidayData>(emptyBankHolidays);
+  const [bankHolidayStatus, setBankHolidayStatus] = useState<"loading" | "ready" | "error">("loading");
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/auth/me").then(response => response.json()).then(({ user: account }) => setUser(account)).finally(() => setAuthReady(true));
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/bank-holidays").then(response => {
+      if (!response.ok) throw new Error("Bank holidays unavailable");
+      return response.json() as Promise<{ divisions: BankHolidayData }>;
+    }).then(result => { if (!cancelled) { setBankHolidays(result.divisions); setBankHolidayStatus("ready"); } }).catch(() => { if (!cancelled) setBankHolidayStatus("error"); });
+    return () => { cancelled = true; };
   }, []);
   useEffect(() => {
     if (!user) { setLoaded(false); return; }
@@ -140,8 +175,12 @@ export default function Home() {
   const fyTotal = Object.entries(store.entries).reduce((sum, [key, entry]) => {
     const date = fromKey(key); return date >= fyStart && date <= fyEnd ? sum + netHours(entry, store.mode) : sum;
   }, 0);
-  const bookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay())));
+  const selectedBankHolidays = bankHolidays[store.bankHolidayDivision] || [];
+  const bankHolidayByDate = new Map(selectedBankHolidays.map(holiday => [holiday.date, holiday]));
+  const bankHolidayKeys = new Set(bankHolidayByDate.keys());
+  const bookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
   const leaveRemaining = Math.max(0, store.allowance - bookedWeekdays.size);
+  const leaveOpportunities = buildLeaveOpportunities(selectedBankHolidays, bookedWeekdays);
   const savedEmployerUrl = normaliseEmployerUrl(store.employerUrl || "") || "";
 
   const reopenCurrentWeek = (current: Store) => { const submissions = { ...(current.submissions || {}) }; delete submissions[currentWeekKey]; return submissions; };
@@ -295,14 +334,16 @@ export default function Home() {
           <div className="panel calendar-panel">
             <div className="panel-heading"><div><p className="eyebrow teal">LEAVE CALENDAR</p><h2>{calendarMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</h2></div><div className="week-nav"><button onClick={() => setCalendarMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>←</button><button onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>Today</button><button onClick={() => setCalendarMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>→</button></div></div>
             <div className="calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => <span key={d}>{d}</span>)}</div>
-            <div className="calendar-grid">{monthGrid.map(day => { const key = keyOf(day); const booking = store.leave.find(item => item.start <= key && item.end >= key); const today = key === keyOf(new Date()); return <div key={key} className={`${day.getMonth() !== calendarMonth.getMonth() ? "muted" : ""} ${booking ? "booked" : ""} ${today ? "today" : ""}`}><span>{day.getDate()}</span>{booking && <small>{booking.label}</small>}</div>; })}</div>
+            <div className="calendar-grid">{monthGrid.map(day => { const key = keyOf(day); const booking = store.leave.find(item => item.start <= key && item.end >= key); const bankHoliday = bankHolidayByDate.get(key); const today = key === keyOf(new Date()); return <div key={key} className={`${day.getMonth() !== calendarMonth.getMonth() ? "muted" : ""} ${booking ? "booked" : ""} ${bankHoliday ? "bank-holiday" : ""} ${today ? "today" : ""}`}><span>{day.getDate()}</span>{bankHoliday && <small className="bank-holiday-name">{bankHoliday.title}</small>}{booking && <small className="leave-name">{booking.label}</small>}</div>; })}</div>
           </div>
           <aside className="leave-sidebar">
+            <section className="panel holiday-settings"><p className="eyebrow teal">BANK HOLIDAYS</p><label htmlFor="bank-holiday-division">Your UK nation<select id="bank-holiday-division" value={store.bankHolidayDivision} onChange={event => setStore(current => ({ ...current, bankHolidayDivision: event.target.value as BankHolidayDivision }))}><option value="england-and-wales">England &amp; Wales</option><option value="scotland">Scotland</option><option value="northern-ireland">Northern Ireland</option></select></label><p>{bankHolidayStatus === "loading" ? "Loading official dates…" : bankHolidayStatus === "error" ? "Official dates are temporarily unavailable. Allowance totals will update when they return." : `${selectedBankHolidays.filter(holiday => holiday.date.slice(0, 4) === String(calendarMonth.getFullYear())).length} official dates loaded for ${calendarMonth.getFullYear()}.`}</p><a href="https://www.gov.uk/bank-holidays" target="_blank" rel="noopener noreferrer">Dates from GOV.UK ↗</a></section>
             <section className="panel allowance-card"><div className="allowance-top"><span>☀</span><div><p>Annual allowance</p><label><input type="number" min="0" step="0.5" value={store.allowance} onChange={e => setStore(s => ({ ...s, allowance: Number(e.target.value) }))} /><small> days</small></label></div></div><div className="allowance-track"><i style={{ width: `${Math.min(100, (bookedWeekdays.size / Math.max(1, store.allowance)) * 100)}%` }} /></div><div className="allowance-numbers"><span><b>{bookedWeekdays.size}</b> booked</span><span><b>{leaveRemaining}</b> remaining</span></div></section>
             <section className="panel book-card"><p className="eyebrow coral">BOOK TIME OFF</p><label>From<input type="date" value={leaveDraft.start} onChange={e => setLeaveDraft(d => ({ ...d, start: e.target.value, end: e.target.value > d.end ? e.target.value : d.end }))} /></label><label>To<input type="date" min={leaveDraft.start} value={leaveDraft.end} onChange={e => setLeaveDraft(d => ({ ...d, end: e.target.value }))} /></label><label>What’s the plan?<input value={leaveDraft.label} onChange={e => setLeaveDraft(d => ({ ...d, label: e.target.value }))} /></label><button onClick={addLeave}>Add to calendar ↗</button></section>
             {store.leave.length > 0 && <section className="panel booked-list"><p className="eyebrow">UPCOMING</p>{store.leave.slice().sort((a, b) => a.start.localeCompare(b.start)).map(item => <div key={item.id}><span><b>{item.label}</b><small>{shortDate(fromKey(item.start))}{item.end !== item.start ? ` — ${shortDate(fromKey(item.end))}` : ""}</small></span><button onClick={() => setStore(s => ({ ...s, leave: s.leave.filter(l => l.id !== item.id) }))} aria-label={`Remove ${item.label}`}>×</button></div>)}</section>}
           </aside>
         </section>
+        <section className="panel optimisation-panel"><div className="optimisation-heading"><div><p className="eyebrow coral">MAKE LEAVE GO FURTHER</p><h2>Longer breaks, fewer leave days.</h2></div><span>{divisionLabels[store.bankHolidayDivision]}</span></div>{bankHolidayStatus === "loading" ? <p className="optimisation-status">Finding the best upcoming combinations…</p> : bankHolidayStatus === "error" ? <p className="optimisation-status">We’ll show leave opportunities when the official dates are available again.</p> : leaveOpportunities.length ? <div className="opportunity-cards">{leaveOpportunities.map(opportunity => <article key={opportunity.id}><div className="opportunity-score"><strong>{opportunity.totalDays}</strong><span>days off</span></div><div><small>{opportunity.title}</small><h3>Use {opportunity.leaveDays} leave {opportunity.leaveDays === 1 ? "day" : "days"} for {opportunity.totalDays} days off</h3><p>{fullDate(fromKey(opportunity.start))} — {fullDate(fromKey(opportunity.end))}</p><button onClick={() => setLeaveDraft({ start: opportunity.start, end: opportunity.end, label: `${opportunity.title} break` })}>Plan these dates ↗</button></div></article>)}</div> : <p className="optimisation-status">You’ve already covered the best upcoming bank-holiday opportunities. Nicely planned.</p>}</section>
         <Deals kind="holiday" />
       </>}
 
