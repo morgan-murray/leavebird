@@ -7,12 +7,12 @@ type HoursFormat = "decimal" | "hhmm";
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
 type Leave = { id: string; start: string; end: string; label: string };
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
-type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; submissions: Record<string, Submission> };
+type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; submissions: Record<string, Submission> };
 type User = { id: string; email: string };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
-const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", submissions: {} };
+const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", submissions: {} };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -34,6 +34,17 @@ const formattedHours = (value: number, format: HoursFormat) => {
 const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 const fullDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+function normaliseEmployerUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null;
+    return url.href;
+  } catch { return null; }
+}
 
 function financialYearStart(today = new Date()) {
   const start = new Date(today.getFullYear(), 3, 6);
@@ -68,6 +79,8 @@ export default function Home() {
   const [leaveDraft, setLeaveDraft] = useState({ start: keyOf(new Date()), end: keyOf(new Date()), label: "Annual leave" });
   const [savedFlash, setSavedFlash] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [employerUrlDraft, setEmployerUrlDraft] = useState("");
+  const [employerUrlError, setEmployerUrlError] = useState("");
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -84,7 +97,7 @@ export default function Home() {
       if (!result.hasData) {
         try { const legacy = localStorage.getItem(STORAGE_KEY); if (legacy) next = { ...initialStore, ...JSON.parse(legacy) }; } catch { /* leave the new account blank */ }
       }
-      if (!cancelled) { setStore(next); setLoaded(true); }
+      if (!cancelled) { setStore(next); setEmployerUrlDraft(next.employerUrl || ""); setLoaded(true); }
       if (!result.hasData) await fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
     })().catch(() => setSaveStatus("error"));
     return () => { cancelled = true; };
@@ -129,6 +142,7 @@ export default function Home() {
   }, 0);
   const bookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay())));
   const leaveRemaining = Math.max(0, store.allowance - bookedWeekdays.size);
+  const savedEmployerUrl = normaliseEmployerUrl(store.employerUrl || "") || "";
 
   const reopenCurrentWeek = (current: Store) => { const submissions = { ...(current.submissions || {}) }; delete submissions[currentWeekKey]; return submissions; };
   const updateEntry = (dateKey: string, patch: Partial<Entry>) => setStore(current => ({ ...current, submissions: reopenCurrentWeek(current), entries: { ...current.entries, [dateKey]: { ...(current.entries[dateKey] || emptyEntry()), ...patch } } }));
@@ -180,6 +194,12 @@ export default function Home() {
     setStore(current => ({ ...current, submissions: { ...(current.submissions || {}), [currentWeekKey]: { submittedAt: new Date().toISOString(), format: current.hoursFormat, grossHours: weekGross, breakHours: weekBreaks, netHours: weekTotal } } }));
   };
   const reopenWeek = () => setStore(current => ({ ...current, submissions: reopenCurrentWeek(current) }));
+  const saveEmployerUrl = () => {
+    const url = normaliseEmployerUrl(employerUrlDraft);
+    if (url === null) { setEmployerUrlError("Enter a valid web address beginning with https:// or http://. Sign-in details cannot be included."); return; }
+    setStore(current => ({ ...current, employerUrl: url })); setEmployerUrlDraft(url); setEmployerUrlError("");
+  };
+  const removeEmployerUrl = () => { setStore(current => ({ ...current, employerUrl: "" })); setEmployerUrlDraft(""); setEmployerUrlError(""); };
 
   const historicalWeeks = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -253,7 +273,8 @@ export default function Home() {
           <div className="completion-tools">
             <div className="total-strip"><div><span>Gross hours</span><strong>{fmt(weekGross)}</strong></div><div><span>Breaks</span><strong>{fmtMinutes(weekBreaks)}</strong></div><div><span>Payable</span><strong>{fmt(weekTotal)}</strong></div></div>
             <div className="format-choice"><span>Employer format</span><div className="segmented" role="group" aria-label="Employer hours format"><button className={store.hoursFormat === "decimal" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "decimal" }))}>Decimal</button><button className={store.hoursFormat === "hhmm" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "hhmm" }))}>HH:MM</button></div></div>
-            <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
+            <div className="employer-shortcut"><div><span>Employer timesheet</span><small>Save the web address only — Leavebird never stores your employer login details.</small></div><div className="employer-url-controls"><input type="text" inputMode="url" aria-label="Employer timesheet web address" value={employerUrlDraft} placeholder="timesheets.your-employer.com" onChange={event => { setEmployerUrlDraft(event.target.value); setEmployerUrlError(""); }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); saveEmployerUrl(); } }} /><button type="button" onClick={saveEmployerUrl}>{savedEmployerUrl ? "Update link" : "Save link"}</button>{savedEmployerUrl && <button type="button" className="remove" onClick={removeEmployerUrl}>Remove</button>}</div>{employerUrlError && <p role="alert">{employerUrlError}</p>}</div>
+            <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{savedEmployerUrl && <a className="employer-open" href={savedEmployerUrl} target="_blank" rel="noopener noreferrer">Open employer timesheet ↗</a>}{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
           </div>
         </section>
         <WeekendReward unlocked={Boolean(currentSubmission)} />
@@ -262,7 +283,7 @@ export default function Home() {
       {tab === "history" && <>
         <section className="history-grid">
           <div className="panel history-panel"><div className="panel-heading"><div><p className="eyebrow coral">YOUR HISTORY</p><h2>Weeks on record</h2></div><span className="fy-pill">FY {fyStart.getFullYear()}/{String(fyEnd.getFullYear()).slice(-2)}</span></div>
-            {historicalWeeks.length ? <div className="history-list">{historicalWeeks.map(([monday, total]) => { const submission = store.submissions?.[monday]; return <button key={monday} onClick={() => { setWeekStart(fromKey(monday)); setTab("week"); }}><span><b>{fullDate(fromKey(monday))}</b><small>Week ending {shortDate(addDays(fromKey(monday), 6))}</small><em className={submission ? "submitted" : "draft"}>{submission ? "✓ Submitted" : "Draft"}</em></span><strong>{fmt(total)}</strong><i>→</i></button>; })}</div> : <div className="empty-state"><span>✦</span><h3>Your history starts here</h3><p>Add some hours to this week and they’ll appear here automatically.</p><button onClick={() => setTab("week")}>Log this week</button></div>}
+            {historicalWeeks.length ? <div className="history-list">{historicalWeeks.map(([monday, total]) => { const submission = store.submissions?.[monday]; return <button key={monday} onClick={() => { setWeekStart(fromKey(monday)); setTab("week"); }}><span><b>{fullDate(fromKey(monday))}</b><small>Week ending {shortDate(addDays(fromKey(monday), 6))}</small>{submission && <><small className="submission-date">Submitted {new Date(submission.submittedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small><small className="submission-totals">Gross {fmt(submission.grossHours)} · Breaks {fmtMinutes(submission.breakHours)} · Payable {fmt(submission.netHours)} · {submission.format === "decimal" ? "Decimal" : "HH:MM"}</small></>}<em className={submission ? "submitted" : "draft"}>{submission ? "✓ Submitted" : "Draft"}</em></span><strong>{fmt(total)}</strong><i>→</i></button>; })}</div> : <div className="empty-state"><span>✦</span><h3>Your history starts here</h3><p>Add some hours to this week and they’ll appear here automatically.</p><button onClick={() => setTab("week")}>Log this week</button></div>}
           </div>
           <aside className="panel data-panel"><p className="eyebrow">SYNCED & PRIVATE</p><h3>Your records follow you.</h3><p>Sign in on another browser or device and your timesheets and leave will be waiting. You can still download a personal backup whenever you like.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
         </section>
