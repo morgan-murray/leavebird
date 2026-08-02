@@ -6,8 +6,6 @@ services:
       POSTGRES_DB: clocked_off
       POSTGRES_USER: clocked_off
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-    ports:
-      - "127.0.0.1:5432:5432"
     volumes:
       - clocked_off_postgres:/var/lib/postgresql/data
     healthcheck:
@@ -16,5 +14,53 @@ services:
       timeout: 3s
       retries: 20
 
+  migrate:
+    build: .
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://clocked_off:${POSTGRES_PASSWORD}@postgres:5432/clocked_off
+      DATABASE_SSL: disable
+    command: ["node", "scripts/migrate.mjs"]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://clocked_off:${POSTGRES_PASSWORD}@postgres:5432/clocked_off
+      DATABASE_SSL: disable
+      COOKIE_SECURE: "true"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      SITE_HOST: ${SITE_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
 volumes:
   clocked_off_postgres:
+  caddy_data:
+  caddy_config:

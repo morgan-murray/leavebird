@@ -11,6 +11,8 @@ This branch runs as a standard Next.js application on a Node.js host. It adds em
 
 In production, serve the app over HTTPS so the secure session cookie is protected in transit. Existing `clocked-off-timesheet-v1` browser records are imported automatically when an account has no server-side data yet.
 
+For the included container deployment, set `POSTGRES_PASSWORD` and `SITE_HOST` in `.env`, then run `docker compose up -d --build`. Postgres is kept on the private Docker network; Caddy publishes ports 80 and 443 and manages HTTPS automatically.
+
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
 Drizzle support.
