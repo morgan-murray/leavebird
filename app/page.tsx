@@ -396,7 +396,7 @@ export default function Home() {
             <h3>Hours over or under, at a glance.</h3>
             <p>Leavebird compares your payable hours with your contracted hours, spread evenly across five weekdays.</p>
             <div className="flexi-preview-row"><FlexiStat label={monthFlexiLabel} balance={monthFlexi.balance} configured={flexiConfigured} /><FlexiStat label={quarterFlexiLabel} balance={quarterFlexi.balance} configured={flexiConfigured} /></div>
-            <ul><li>Balances run to today.</li><li>Booked annual leave and bank holidays do not count against you.</li><li>Quarters follow the calendar year.</li></ul>
+            <ul><li>Balances run to today.</li><li>Days without entered timesheets are assumed to be worked at your contracted hours.</li><li>Booked annual leave and bank holidays do not count against you.</li><li>Quarters follow the calendar year.</li></ul>
           </aside>
         </section>
       )}

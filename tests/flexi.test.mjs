@@ -26,7 +26,7 @@ test("supports fractional contracted hours and positive balances", () => {
   assert.equal(result.balance, 1);
 });
 
-test("excludes annual leave and bank holidays from expected hours", () => {
+test("excludes leave and bank holidays while assuming contract for blank working days", () => {
   const result = calculateFlexiBalance({
     contractedHoursPerWeek: 40,
     periodStart: new Date(2026, 7, 3),
@@ -40,7 +40,40 @@ test("excludes annual leave and bank holidays from expected hours", () => {
   });
   assert.equal(result.expectedDays, 3);
   assert.equal(result.expectedHours, 24);
-  assert.equal(result.balance, -9);
+  assert.equal(result.assumedHours, 8);
+  assert.equal(result.balance, -1);
+});
+
+test("unentered timesheets are neutral and only recorded variance carries forward", () => {
+  const result = calculateFlexiBalance({
+    contractedHoursPerWeek: 37.5,
+    periodStart: new Date(2026, 7, 3),
+    periodEnd: new Date(2026, 7, 14),
+    entries: {
+      "2026-08-10": { hours: 10, breakHours: 0.5 },
+    },
+    leave: [],
+    bankHolidayDates: [],
+  });
+  assert.equal(result.expectedDays, 10);
+  assert.equal(result.expectedHours, 75);
+  assert.equal(result.actualHours, 9.5);
+  assert.equal(result.assumedHours, 67.5);
+  assert.equal(result.balance, 2);
+});
+
+test("a completely unentered week has a zero flexi balance", () => {
+  const result = calculateFlexiBalance({
+    contractedHoursPerWeek: 37.5,
+    periodStart: new Date(2026, 7, 3),
+    periodEnd: new Date(2026, 7, 7),
+    entries: {},
+    leave: [],
+    bankHolidayDates: [],
+  });
+  assert.equal(result.expectedHours, 37.5);
+  assert.equal(result.assumedHours, 37.5);
+  assert.equal(result.balance, 0);
 });
 
 test("returns zero when actual and expected hours match", () => {
