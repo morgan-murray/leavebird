@@ -105,7 +105,7 @@ export default function Home() {
   };
   const exportData = () => {
     const blob = new Blob([JSON.stringify(store, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `clocked-off-backup-${keyOf(new Date())}.json`; a.click(); URL.revokeObjectURL(url);
+    const a = document.createElement("a"); a.href = url; a.download = `leavebird-backup-${keyOf(new Date())}.json`; a.click(); URL.revokeObjectURL(url);
   };
   const importData = async (file?: File) => {
     if (!file) return; try { const parsed = JSON.parse(await file.text()); setStore({ ...initialStore, ...parsed }); } catch { alert("That backup file could not be read."); }
@@ -130,7 +130,7 @@ export default function Home() {
     <main className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => setTab("week")} aria-label="Go to this week">
-          <span className="brand-mark">↗</span><span><b>Clocked Off</b><small>work smart · wander often</small></span>
+          <span className="brand-mark">↗</span><span><b>Leavebird</b><small>work smart · wander often</small></span>
         </button>
         <nav aria-label="Main navigation">
           <button className={tab === "week" ? "active" : ""} onClick={() => setTab("week")}>This week</button>
@@ -201,7 +201,7 @@ export default function Home() {
         <Deals kind="holiday" />
       </>}
 
-      <footer><span><b>Clocked Off</b> · your time stays yours</span><span>Securely synced to your account</span></footer>
+      <footer><span><b>Leavebird</b> · your time stays yours</span><span>Securely synced to your account</span></footer>
     </main>
   );
 }
@@ -224,12 +224,12 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
   };
 
   return <main className="auth-shell">
-    <section className="auth-story"><div className="auth-brand"><span className="brand-mark">↗</span><b>Clocked Off</b></div><div><p className="eyebrow">YOUR TIME, ANYWHERE</p><h1>Get the week done.<br /><em>Plan the escape.</em></h1><p>Your timesheets, history and leave plans — waiting on every device.</p></div><div className="auth-stamps"><span>☀ LEAVE</span><span>✓ HOURS</span><span>↗ WEEKEND</span></div></section>
+    <section className="auth-story"><div className="auth-brand"><span className="brand-mark">↗</span><b>Leavebird</b></div><div><p className="eyebrow">YOUR TIME, ANYWHERE</p><h1>Get the week done.<br /><em>Plan the escape.</em></h1><p>Your timesheets, history and leave plans — waiting on every device.</p></div><div className="auth-stamps"><span>☀ LEAVE</span><span>✓ HOURS</span><span>↗ WEEKEND</span></div></section>
     <section className="auth-panel"><form onSubmit={submit}><p className="eyebrow coral">{mode === "login" ? "WELCOME BACK" : "MAKE IT YOURS"}</p><h2>{mode === "login" ? "Sign in to your time." : "Create your account."}</h2><p className="auth-copy">{mode === "login" ? "Your records are securely synced across your browsers and devices." : "Your existing browser timesheet will be brought into your new account automatically."}</p>
       <label>Email address<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></label>
       <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={mode === "register" ? 10 : undefined} value={password} onChange={event => setPassword(event.target.value)} placeholder={mode === "register" ? "At least 10 characters" : "Your password"} /></label>
       {error && <p className="auth-error" role="alert">{error}</p>}<button className="auth-submit" disabled={busy}>{busy ? "One moment…" : mode === "login" ? "Sign in ↗" : "Create account ↗"}</button>
-      <p className="auth-switch">{mode === "login" ? "New to Clocked Off?" : "Already have an account?"} <button type="button" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>{mode === "login" ? "Create one" : "Sign in"}</button></p>
+      <p className="auth-switch">{mode === "login" ? "New to Leavebird?" : "Already have an account?"} <button type="button" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>{mode === "login" ? "Create one" : "Sign in"}</button></p>
     </form></section>
   </main>;
 }
@@ -242,5 +242,5 @@ function Deals({ kind }: { kind: "weekend" | "holiday" }) {
     { tag: "PACK LIGHT", icon: "🌊", title: "Turn three leave days into a proper escape", copy: "Browse spontaneous city and beach breaks.", source: "lastminute.com", url: "https://www.lastminute.com/holidays/" },
     { tag: "DEAL SPOTTED", icon: "✈", title: "The long weekend is calling", copy: "Fresh travel deals and delightfully cheap flights.", source: "HolidayPirates", url: "https://www.holidaypirates.com/" },
   ];
-  return <section className={`deals ${kind}`}><div className="deals-title"><div><p className="eyebrow">{kind === "weekend" ? "CLOCKED-OFF PICKS" : "ESCAPE BOARD"}</p><h2>{kind === "weekend" ? "Make the weekend count." : "Give those leave days somewhere to go."}</h2></div><span>Handy links · not sponsored</span></div><div className="deal-cards">{deals.map(deal => <a key={deal.source} href={deal.url} target="_blank" rel="noreferrer"><div className="deal-icon">{deal.icon}</div><div><small>{deal.tag}</small><h3>{deal.title}</h3><p>{deal.copy}</p><b>Browse on {deal.source} <i>↗</i></b></div></a>)}</div></section>;
+  return <section className={`deals ${kind}`}><div className="deals-title"><div><p className="eyebrow">{kind === "weekend" ? "LEAVEBIRD PICKS" : "ESCAPE BOARD"}</p><h2>{kind === "weekend" ? "Make the weekend count." : "Give those leave days somewhere to go."}</h2></div><span>Handy links · not sponsored</span></div><div className="deal-cards">{deals.map(deal => <a key={deal.source} href={deal.url} target="_blank" rel="noreferrer"><div className="deal-icon">{deal.icon}</div><div><small>{deal.tag}</small><h3>{deal.title}</h3><p>{deal.copy}</p><b>Browse on {deal.source} <i>↗</i></b></div></a>)}</div></section>;
 }
