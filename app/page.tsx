@@ -6,27 +6,40 @@ import { dailyChirpDismissalKey, dailyChirpForDate } from "@/lib/daily-chirp";
 import {
   calculateFlexiBalance,
   calendarQuarterLabel,
-  startOfCalendarMonth,
-  startOfCalendarQuarter,
+  flexiPeriodBounds,
+  isRangeWithinFlexiPeriod,
 } from "@/lib/flexi";
 
 type Mode = "clock" | "hours";
 type HoursFormat = "decimal" | "hhmm";
+type FlexiPeriod = "monthly" | "quarterly";
+type LeaveType = "annual" | "flexi";
 type BankHolidayDivision = "england-and-wales" | "scotland" | "northern-ireland";
 type BankHoliday = { title: string; date: string };
 type BankHolidayData = Record<BankHolidayDivision, BankHoliday[]>;
 type LeaveOpportunity = { id: string; title: string; start: string; end: string; totalDays: number; leaveDays: number };
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
-type Leave = { id: string; start: string; end: string; label: string };
+type Leave = { id: string; start: string; end: string; label: string; type: LeaveType };
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
-type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null };
+type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null; contractedHoursPerDay: number | null; flexiPeriod: FlexiPeriod };
 type User = { id: string; email: string };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
-const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {}, contractedHoursPerWeek: null };
+const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {}, contractedHoursPerWeek: null, contractedHoursPerDay: null, flexiPeriod: "monthly" };
 const emptyBankHolidays: BankHolidayData = { "england-and-wales": [], scotland: [], "northern-ireland": [] };
 const divisionLabels: Record<BankHolidayDivision, string> = { "england-and-wales": "England & Wales", scotland: "Scotland", "northern-ireland": "Northern Ireland" };
+
+function normaliseStore(value: Partial<Store>): Store {
+  const merged = { ...initialStore, ...value };
+  const legacyDailyHours = merged.contractedHoursPerWeek && merged.contractedHoursPerWeek > 0 ? merged.contractedHoursPerWeek / 5 : null;
+  return {
+    ...merged,
+    contractedHoursPerDay: merged.contractedHoursPerDay && merged.contractedHoursPerDay > 0 ? merged.contractedHoursPerDay : legacyDailyHours,
+    flexiPeriod: merged.flexiPeriod === "quarterly" ? "quarterly" : "monthly",
+    leave: (merged.leave || []).map(item => ({ ...item, type: item.type === "flexi" ? "flexi" : "annual" })),
+  };
+}
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -124,7 +137,8 @@ export default function Home() {
   const [tab, setTab] = useState<"week" | "history" | "leave" | "settings">("week");
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const [leaveDraft, setLeaveDraft] = useState({ start: keyOf(new Date()), end: keyOf(new Date()), label: "Annual leave" });
+  const [leaveDraft, setLeaveDraft] = useState<{ start: string; end: string; label: string; type: LeaveType }>({ start: keyOf(new Date()), end: keyOf(new Date()), label: "Annual leave", type: "annual" });
+  const [leaveDraftError, setLeaveDraftError] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [employerUrlDraft, setEmployerUrlDraft] = useState("");
@@ -155,9 +169,9 @@ export default function Home() {
       const response = await fetch("/api/data");
       if (!response.ok) return;
       const result = await response.json() as { data: Store | null; hasData: boolean };
-      let next = result.data ? { ...initialStore, ...result.data } : initialStore;
+      let next = normaliseStore(result.data || {});
       if (!result.hasData) {
-        try { const legacy = localStorage.getItem(STORAGE_KEY); if (legacy) next = { ...initialStore, ...JSON.parse(legacy) }; } catch { /* leave the new account blank */ }
+        try { const legacy = localStorage.getItem(STORAGE_KEY); if (legacy) next = normaliseStore(JSON.parse(legacy)); } catch { /* leave the new account blank */ }
       }
       if (!cancelled) { setStore(next); setEmployerUrlDraft(next.employerUrl || ""); setLoaded(true); }
       if (!result.hasData) await fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
@@ -219,21 +233,24 @@ export default function Home() {
   const bankHolidayByDate = new Map(selectedBankHolidays.map(holiday => [holiday.date, holiday]));
   const bankHolidayKeys = new Set(bankHolidayByDate.keys());
   const today = new Date();
+  const currentFlexiPeriod = flexiPeriodBounds(store.flexiPeriod, today);
+  const currentFlexiPeriodStartKey = keyOf(currentFlexiPeriod.start);
+  const currentFlexiPeriodEndKey = keyOf(currentFlexiPeriod.end);
   const flexiConfigured = Boolean(store.contractedHoursPerWeek && store.contractedHoursPerWeek > 0);
-  const flexiInput = {
+  const selectedFlexi = calculateFlexiBalance({
     entries: store.entries,
     leave: store.leave,
     bankHolidayDates: bankHolidayKeys,
     contractedHoursPerWeek: store.contractedHoursPerWeek,
-    periodEnd: today,
-  };
-  const monthFlexi = calculateFlexiBalance({ ...flexiInput, periodStart: startOfCalendarMonth(today) });
-  const quarterFlexi = calculateFlexiBalance({ ...flexiInput, periodStart: startOfCalendarQuarter(today) });
-  const monthFlexiLabel = `${today.toLocaleDateString("en-GB", { month: "short" })} flexi`;
-  const quarterFlexiLabel = `${calendarQuarterLabel(today)} flexi`;
-  const bookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
-  const leaveRemaining = Math.max(0, store.allowance - bookedWeekdays.size);
-  const leaveOpportunities = buildLeaveOpportunities(selectedBankHolidays, bookedWeekdays);
+    contractedHoursPerDay: store.contractedHoursPerDay,
+    periodStart: currentFlexiPeriod.start,
+    periodEnd: currentFlexiPeriod.end,
+  });
+  const selectedFlexiLabel = store.flexiPeriod === "quarterly" ? `${calendarQuarterLabel(today)} flexi` : `${today.toLocaleDateString("en-GB", { month: "short" })} flexi`;
+  const allBookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
+  const annualLeaveWeekdays = new Set(store.leave.filter(item => item.type !== "flexi").flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
+  const leaveRemaining = Math.max(0, store.allowance - annualLeaveWeekdays.size);
+  const leaveOpportunities = buildLeaveOpportunities(selectedBankHolidays, allBookedWeekdays);
   const savedEmployerUrl = normaliseEmployerUrl(store.employerUrl || "") || "";
 
   const reopenCurrentWeek = (current: Store) => { const submissions = { ...(current.submissions || {}) }; delete submissions[currentWeekKey]; return submissions; };
@@ -245,7 +262,16 @@ export default function Home() {
   });
   const changeWeek = (amount: number) => setWeekStart(current => addDays(current, amount * 7));
   const addLeave = () => {
+    setLeaveDraftError("");
     if (!leaveDraft.start || !leaveDraft.end || leaveDraft.end < leaveDraft.start) return;
+    if (leaveDraft.type === "flexi" && (!store.contractedHoursPerDay || store.contractedHoursPerDay <= 0)) {
+      setLeaveDraftError("Add your contracted hours per day in Settings before booking flexi leave.");
+      return;
+    }
+    if (leaveDraft.type === "flexi" && !isRangeWithinFlexiPeriod(leaveDraft.start, leaveDraft.end, store.flexiPeriod, today)) {
+      setLeaveDraftError(`Flexi leave can only be booked within the current ${store.flexiPeriod === "quarterly" ? "quarter" : "month"}.`);
+      return;
+    }
     setStore(current => ({ ...current, leave: [...current.leave, { id: crypto.randomUUID(), ...leaveDraft }] }));
   };
   const exportData = () => {
@@ -253,7 +279,7 @@ export default function Home() {
     const a = document.createElement("a"); a.href = url; a.download = `leavebird-backup-${keyOf(new Date())}.json`; a.click(); URL.revokeObjectURL(url);
   };
   const importData = async (file?: File) => {
-    if (!file) return; try { const parsed = JSON.parse(await file.text()); setStore({ ...initialStore, ...parsed }); } catch { alert("That backup file could not be read."); }
+    if (!file) return; try { const parsed = JSON.parse(await file.text()); setStore(normaliseStore(parsed)); } catch { alert("That backup file could not be read."); }
   };
   const weekRows = () => days.map(day => {
     const entry = store.entries[keyOf(day)] || emptyEntry(); const gross = Number(entry.hours) || 0; const breaks = Number(entry.breakHours) || 0;
@@ -333,8 +359,7 @@ export default function Home() {
         <div className="hero-stats">
           <div><span>This week</span><strong>{fmt(weekTotal)}</strong></div>
           <div><span>Financial year</span><strong>{fmt(fyTotal)}</strong></div>
-          <FlexiStat label={monthFlexiLabel} balance={monthFlexi.balance} configured={flexiConfigured} />
-          <FlexiStat label={quarterFlexiLabel} balance={quarterFlexi.balance} configured={flexiConfigured} />
+          <FlexiStat label={selectedFlexiLabel} balance={selectedFlexi.balance} configured={flexiConfigured} />
           <div className="sun-stat"><span>Leave left</span><strong>{leaveRemaining}d</strong></div>
         </div>
       </section>
@@ -404,32 +429,35 @@ export default function Home() {
           <section className="panel settings-card">
             <p className="eyebrow coral">FLEXI-TIME SETTINGS</p>
             <h2>Your contracted week</h2>
-            <p className="settings-intro">Add the hours you are contracted to work each week. Fractional hours are welcome — 37.5 works perfectly.</p>
-            <label htmlFor="contracted-hours">Contracted hours per week</label>
-            <div className="contracted-hours-control">
-              <input
-                id="contracted-hours"
-                type="number"
-                min="0.25"
-                step="0.25"
-                inputMode="decimal"
-                value={store.contractedHoursPerWeek ?? ""}
-                placeholder="37.5"
-                aria-describedby="contracted-hours-help"
-                aria-invalid={store.contractedHoursPerWeek !== null && store.contractedHoursPerWeek <= 0}
-                onChange={event => setStore(current => ({ ...current, contractedHoursPerWeek: event.target.value === "" ? null : Number(event.target.value) }))}
-                onBlur={() => setStore(current => ({ ...current, contractedHoursPerWeek: current.contractedHoursPerWeek && current.contractedHoursPerWeek > 0 ? current.contractedHoursPerWeek : null }))}
-              />
-              <span>hours</span>
+            <p className="settings-intro">Set your weekly target, the hours in a normal working day, and whether your flexi balance resets monthly or quarterly.</p>
+            <div className="settings-fields">
+              <div className="settings-field">
+                <label htmlFor="contracted-hours">Contracted hours per week</label>
+                <div className="contracted-hours-control">
+                  <input id="contracted-hours" type="number" min="0.25" step="0.25" inputMode="decimal" value={store.contractedHoursPerWeek ?? ""} placeholder="37.5" aria-describedby="contracted-hours-help" onChange={event => setStore(current => ({ ...current, contractedHoursPerWeek: event.target.value === "" ? null : Number(event.target.value) }))} onBlur={() => setStore(current => ({ ...current, contractedHoursPerWeek: current.contractedHoursPerWeek && current.contractedHoursPerWeek > 0 ? current.contractedHoursPerWeek : null }))} />
+                  <span>hours</span>
+                </div>
+              </div>
+              <div className="settings-field">
+                <label htmlFor="contracted-day-hours">Contracted hours per day</label>
+                <div className="contracted-hours-control">
+                  <input id="contracted-day-hours" type="number" min="0.25" step="0.25" inputMode="decimal" value={store.contractedHoursPerDay ?? ""} placeholder="7.5" aria-describedby="contracted-hours-help" onChange={event => setStore(current => ({ ...current, contractedHoursPerDay: event.target.value === "" ? null : Number(event.target.value) }))} onBlur={() => setStore(current => ({ ...current, contractedHoursPerDay: current.contractedHoursPerDay && current.contractedHoursPerDay > 0 ? current.contractedHoursPerDay : null }))} />
+                  <span>hours</span>
+                </div>
+              </div>
             </div>
-            <p id="contracted-hours-help" className="settings-help">Saved securely to your account and available on every signed-in device.</p>
+            <fieldset className="settings-period">
+              <legend>Flexi period</legend>
+              <div className="segmented"><button type="button" className={store.flexiPeriod === "monthly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "monthly" }))}>Monthly</button><button type="button" className={store.flexiPeriod === "quarterly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "quarterly" }))}>Quarterly</button></div>
+            </fieldset>
+            <p id="contracted-hours-help" className="settings-help">Daily hours are used when you book flexi leave. Everything is saved securely to your account.</p>
           </section>
           <aside className="panel flexi-explainer">
             <p className="eyebrow teal">HOW IT WORKS</p>
             <h3>Hours over or under, at a glance.</h3>
-            <p>Leavebird compares your payable hours with your contracted hours, spread evenly across five weekdays.</p>
-            <div className="flexi-preview-row"><FlexiStat label={monthFlexiLabel} balance={monthFlexi.balance} configured={flexiConfigured} /><FlexiStat label={quarterFlexiLabel} balance={quarterFlexi.balance} configured={flexiConfigured} /></div>
-            <ul><li>Balances run to today.</li><li>Days without entered timesheets are assumed to be worked at your contracted hours.</li><li>Booked annual leave and bank holidays do not count against you.</li><li>Quarters follow the calendar year.</li></ul>
+            <p>Leavebird compares your payable hours with your weekly target and uses your daily hours whenever you take flexi leave.</p>
+            <div className="flexi-preview-row"><FlexiStat label={selectedFlexiLabel} balance={selectedFlexi.balance} configured={flexiConfigured} /></div>
+            <ul><li>Your selected balance covers this whole {store.flexiPeriod === "quarterly" ? "quarter" : "month"}; unentered days stay neutral.</li><li>Days without entered timesheets are assumed to be worked at your contracted hours.</li><li>Annual leave and bank holidays do not count against you.</li><li>Each flexi-leave weekday deducts your contracted daily hours.</li></ul>
           </aside>
         </section>
       )}
@@ -438,17 +466,22 @@ export default function Home() {
         <section className="leave-layout">
           <div className="panel calendar-panel">
             <div className="panel-heading"><div><p className="eyebrow teal">LEAVE CALENDAR</p><h2>{calendarMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</h2></div><div className="week-nav"><button onClick={() => setCalendarMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>←</button><button onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>Today</button><button onClick={() => setCalendarMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>→</button></div></div>
+            <div className="calendar-legend"><span><i className="annual" />Annual leave</span><span><i className="flexi" />Flexi leave</span><span><i className="holiday" />Bank holiday</span></div>
             <div className="calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => <span key={d}>{d}</span>)}</div>
-            <div className="calendar-grid">{monthGrid.map(day => { const key = keyOf(day); const booking = store.leave.find(item => item.start <= key && item.end >= key); const bankHoliday = bankHolidayByDate.get(key); const today = key === keyOf(new Date()); return <div key={key} className={`${day.getMonth() !== calendarMonth.getMonth() ? "muted" : ""} ${booking ? "booked" : ""} ${bankHoliday ? "bank-holiday" : ""} ${today ? "today" : ""}`}><span>{day.getDate()}</span>{bankHoliday && <small className="bank-holiday-name">{bankHoliday.title}</small>}{booking && <small className="leave-name">{booking.label}</small>}</div>; })}</div>
+            <div className="calendar-grid">{monthGrid.map(day => { const key = keyOf(day); const booking = store.leave.find(item => item.start <= key && item.end >= key); const bankHoliday = bankHolidayByDate.get(key); const isToday = key === keyOf(new Date()); return <div key={key} className={`${day.getMonth() !== calendarMonth.getMonth() ? "muted" : ""} ${booking ? "booked" : ""} ${booking?.type === "flexi" ? "flexi-leave" : ""} ${bankHoliday ? "bank-holiday" : ""} ${isToday ? "today" : ""}`} aria-label={`${fullDate(day)}${booking ? `, ${booking.type === "flexi" ? "flexi leave" : "annual leave"}: ${booking.label}` : ""}${bankHoliday ? `, bank holiday: ${bankHoliday.title}` : ""}`}><span>{day.getDate()}</span>{bankHoliday && <small className="bank-holiday-name">{bankHoliday.title}</small>}{booking && <small className="leave-name">{booking.type === "flexi" ? "Flexi · " : ""}{booking.label}</small>}</div>; })}</div>
+
           </div>
           <aside className="leave-sidebar">
             <section className="panel holiday-settings"><p className="eyebrow teal">BANK HOLIDAYS</p><label htmlFor="bank-holiday-division">Your UK nation<select id="bank-holiday-division" value={store.bankHolidayDivision} onChange={event => setStore(current => ({ ...current, bankHolidayDivision: event.target.value as BankHolidayDivision }))}><option value="england-and-wales">England &amp; Wales</option><option value="scotland">Scotland</option><option value="northern-ireland">Northern Ireland</option></select></label><p>{bankHolidayStatus === "loading" ? "Loading official dates…" : bankHolidayStatus === "error" ? "Official dates are temporarily unavailable. Allowance totals will update when they return." : `${selectedBankHolidays.filter(holiday => holiday.date.slice(0, 4) === String(calendarMonth.getFullYear())).length} official dates loaded for ${calendarMonth.getFullYear()}.`}</p><a href="https://www.gov.uk/bank-holidays" target="_blank" rel="noopener noreferrer">Dates from GOV.UK ↗</a></section>
-            <section className="panel allowance-card"><div className="allowance-top"><span>☀</span><div><p>Annual allowance</p><label><input type="number" min="0" step="0.5" value={store.allowance} onChange={e => setStore(s => ({ ...s, allowance: Number(e.target.value) }))} /><small> days</small></label></div></div><div className="allowance-track"><i style={{ width: `${Math.min(100, (bookedWeekdays.size / Math.max(1, store.allowance)) * 100)}%` }} /></div><div className="allowance-numbers"><span><b>{bookedWeekdays.size}</b> booked</span><span><b>{leaveRemaining}</b> remaining</span></div></section>
-            <section className="panel book-card"><p className="eyebrow coral">BOOK TIME OFF</p><label>From<input type="date" value={leaveDraft.start} onChange={e => setLeaveDraft(d => ({ ...d, start: e.target.value, end: e.target.value > d.end ? e.target.value : d.end }))} /></label><label>To<input type="date" min={leaveDraft.start} value={leaveDraft.end} onChange={e => setLeaveDraft(d => ({ ...d, end: e.target.value }))} /></label><label>What’s the plan?<input value={leaveDraft.label} onChange={e => setLeaveDraft(d => ({ ...d, label: e.target.value }))} /></label><button onClick={addLeave}>Add to calendar ↗</button></section>
-            {store.leave.length > 0 && <section className="panel booked-list"><p className="eyebrow">UPCOMING</p>{store.leave.slice().sort((a, b) => a.start.localeCompare(b.start)).map(item => <div key={item.id}><span><b>{item.label}</b><small>{shortDate(fromKey(item.start))}{item.end !== item.start ? ` — ${shortDate(fromKey(item.end))}` : ""}</small></span><button onClick={() => setStore(s => ({ ...s, leave: s.leave.filter(l => l.id !== item.id) }))} aria-label={`Remove ${item.label}`}>×</button></div>)}</section>}
+            <section className="panel allowance-card"><div className="allowance-top"><span>☀</span><div><p>Annual allowance</p><label><input type="number" min="0" step="0.5" value={store.allowance} onChange={e => setStore(s => ({ ...s, allowance: Number(e.target.value) }))} /><small> days</small></label></div></div><div className="allowance-track"><i style={{ width: `${Math.min(100, (annualLeaveWeekdays.size / Math.max(1, store.allowance)) * 100)}%` }} /></div><div className="allowance-numbers"><span><b>{annualLeaveWeekdays.size}</b> booked</span><span><b>{leaveRemaining}</b> remaining</span></div></section>
+
+            <section className="panel book-card"><p className="eyebrow coral">BOOK TIME OFF</p><div className="leave-type-choice segmented" role="group" aria-label="Leave type"><button type="button" className={leaveDraft.type === "annual" ? "selected" : ""} onClick={() => { setLeaveDraft(d => ({ ...d, type: "annual", label: d.label === "Flexi leave" ? "Annual leave" : d.label })); setLeaveDraftError(""); }}>Annual leave</button><button type="button" className={leaveDraft.type === "flexi" ? "selected" : ""} onClick={() => { const valid = isRangeWithinFlexiPeriod(leaveDraft.start, leaveDraft.end, store.flexiPeriod, today); setLeaveDraft(d => ({ ...d, type: "flexi", start: valid ? d.start : keyOf(today), end: valid ? d.end : keyOf(today), label: d.label === "Annual leave" ? "Flexi leave" : d.label })); setLeaveDraftError(""); }}>Flexi leave</button></div><label>From<input type="date" min={leaveDraft.type === "flexi" ? currentFlexiPeriodStartKey : undefined} max={leaveDraft.type === "flexi" ? currentFlexiPeriodEndKey : undefined} value={leaveDraft.start} onChange={e => { setLeaveDraft(d => ({ ...d, start: e.target.value, end: e.target.value > d.end ? e.target.value : d.end })); setLeaveDraftError(""); }} /></label><label>To<input type="date" min={leaveDraft.start} max={leaveDraft.type === "flexi" ? currentFlexiPeriodEndKey : undefined} value={leaveDraft.end} onChange={e => { setLeaveDraft(d => ({ ...d, end: e.target.value })); setLeaveDraftError(""); }} /></label>{leaveDraft.type === "flexi" && <p className="flexi-booking-note">Book within {fullDate(currentFlexiPeriod.start)} — {fullDate(currentFlexiPeriod.end)}. Each weekday uses {store.contractedHoursPerDay ? fmt(store.contractedHoursPerDay) : "your daily hours"}.</p>}<label>What’s the plan?<input value={leaveDraft.label} onChange={e => setLeaveDraft(d => ({ ...d, label: e.target.value }))} /></label>{leaveDraftError && <p className="booking-error" role="alert">{leaveDraftError}</p>}<button onClick={addLeave}>Add to calendar ↗</button></section>
+
+            {store.leave.length > 0 && <section className="panel booked-list"><p className="eyebrow">UPCOMING</p>{store.leave.slice().sort((a, b) => a.start.localeCompare(b.start)).map(item => <div key={item.id}><span><b>{item.label}</b><small>{item.type === "flexi" ? "Flexi leave · " : "Annual leave · "}{shortDate(fromKey(item.start))}{item.end !== item.start ? ` — ${shortDate(fromKey(item.end))}` : ""}</small></span><button onClick={() => setStore(s => ({ ...s, leave: s.leave.filter(l => l.id !== item.id) }))} aria-label={`Remove ${item.label}`}>×</button></div>)}</section>}
+
           </aside>
         </section>
-        <section className="panel optimisation-panel"><div className="optimisation-heading"><div><p className="eyebrow coral">MAKE LEAVE GO FURTHER</p><h2>Longer breaks, fewer leave days.</h2></div><span>{divisionLabels[store.bankHolidayDivision]}</span></div>{bankHolidayStatus === "loading" ? <p className="optimisation-status">Finding the best upcoming combinations…</p> : bankHolidayStatus === "error" ? <p className="optimisation-status">We’ll show leave opportunities when the official dates are available again.</p> : leaveOpportunities.length ? <div className="opportunity-cards">{leaveOpportunities.map(opportunity => <article key={opportunity.id}><div className="opportunity-score"><strong>{opportunity.totalDays}</strong><span>days off</span></div><div><small>{opportunity.title}</small><h3>Use {opportunity.leaveDays} leave {opportunity.leaveDays === 1 ? "day" : "days"} for {opportunity.totalDays} days off</h3><p>{fullDate(fromKey(opportunity.start))} — {fullDate(fromKey(opportunity.end))}</p><button onClick={() => setLeaveDraft({ start: opportunity.start, end: opportunity.end, label: `${opportunity.title} break` })}>Plan these dates ↗</button></div></article>)}</div> : <p className="optimisation-status">You’ve already covered the best upcoming bank-holiday opportunities. Nicely planned.</p>}</section>
+        <section className="panel optimisation-panel"><div className="optimisation-heading"><div><p className="eyebrow coral">MAKE LEAVE GO FURTHER</p><h2>Longer breaks, fewer leave days.</h2></div><span>{divisionLabels[store.bankHolidayDivision]}</span></div>{bankHolidayStatus === "loading" ? <p className="optimisation-status">Finding the best upcoming combinations…</p> : bankHolidayStatus === "error" ? <p className="optimisation-status">We’ll show leave opportunities when the official dates are available again.</p> : leaveOpportunities.length ? <div className="opportunity-cards">{leaveOpportunities.map(opportunity => <article key={opportunity.id}><div className="opportunity-score"><strong>{opportunity.totalDays}</strong><span>days off</span></div><div><small>{opportunity.title}</small><h3>Use {opportunity.leaveDays} leave {opportunity.leaveDays === 1 ? "day" : "days"} for {opportunity.totalDays} days off</h3><p>{fullDate(fromKey(opportunity.start))} — {fullDate(fromKey(opportunity.end))}</p><button onClick={() => setLeaveDraft({ start: opportunity.start, end: opportunity.end, label: `${opportunity.title} break`, type: "annual" })}>Plan these dates ↗</button></div></article>)}</div> : <p className="optimisation-status">You’ve already covered the best upcoming bank-holiday opportunities. Nicely planned.</p>}</section>
         <Deals kind="holiday" />
       </>}
 
