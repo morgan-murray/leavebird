@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  calculateFlexiBalance,
+  calendarQuarterLabel,
+  startOfCalendarMonth,
+  startOfCalendarQuarter,
+} from "@/lib/flexi";
 
 type Mode = "clock" | "hours";
 type HoursFormat = "decimal" | "hhmm";
@@ -11,12 +17,12 @@ type LeaveOpportunity = { id: string; title: string; start: string; end: string;
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
 type Leave = { id: string; start: string; end: string; label: string };
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
-type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission> };
+type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null };
 type User = { id: string; email: string };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
-const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {} };
+const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {}, contractedHoursPerWeek: null };
 const emptyBankHolidays: BankHolidayData = { "england-and-wales": [], scotland: [], "northern-ireland": [] };
 const divisionLabels: Record<BankHolidayDivision, string> = { "england-and-wales": "England & Wales", scotland: "Scotland", "northern-ireland": "Northern Ireland" };
 
@@ -92,13 +98,28 @@ function TimeField({ id, label, dayName, value, onChange }: { id: string; label:
   </div>;
 }
 
+function FlexiStat({ label, balance, configured }: { label: string; balance: number; configured: boolean }) {
+  if (!configured) return <div className="flexi-stat neutral" aria-label={`${label}: contracted hours not set`}>
+    <span>{label}</span><strong>—</strong><small>Set weekly hours</small>
+  </div>;
+  const rounded = Number(balance.toFixed(2));
+  const tone = rounded > 0 ? "positive" : rounded < 0 ? "negative" : "neutral";
+  const value = rounded > 0 ? `+${rounded}h` : rounded < 0 ? `−${Math.abs(rounded)}h` : "0h";
+  const status = rounded > 0 ? "↑ ahead" : rounded < 0 ? "↓ behind" : "On target";
+  return <div className={`flexi-stat ${tone}`} aria-label={`${label}: ${value}, ${status}`}>
+    <span>{label}</span>
+    <strong>{value}</strong>
+    <small>{status}</small>
+  </div>;
+}
+
 export default function Home() {
   const [store, setStore] = useState<Store>(initialStore);
   const [loaded, setLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
-  const [tab, setTab] = useState<"week" | "history" | "leave">("week");
+  const [tab, setTab] = useState<"week" | "history" | "leave" | "settings">("week");
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [leaveDraft, setLeaveDraft] = useState({ start: keyOf(new Date()), end: keyOf(new Date()), label: "Annual leave" });
@@ -178,6 +199,19 @@ export default function Home() {
   const selectedBankHolidays = bankHolidays[store.bankHolidayDivision] || [];
   const bankHolidayByDate = new Map(selectedBankHolidays.map(holiday => [holiday.date, holiday]));
   const bankHolidayKeys = new Set(bankHolidayByDate.keys());
+  const today = new Date();
+  const flexiConfigured = Boolean(store.contractedHoursPerWeek && store.contractedHoursPerWeek > 0);
+  const flexiInput = {
+    entries: store.entries,
+    leave: store.leave,
+    bankHolidayDates: bankHolidayKeys,
+    contractedHoursPerWeek: store.contractedHoursPerWeek,
+    periodEnd: today,
+  };
+  const monthFlexi = calculateFlexiBalance({ ...flexiInput, periodStart: startOfCalendarMonth(today) });
+  const quarterFlexi = calculateFlexiBalance({ ...flexiInput, periodStart: startOfCalendarQuarter(today) });
+  const monthFlexiLabel = `${today.toLocaleDateString("en-GB", { month: "short" })} flexi`;
+  const quarterFlexiLabel = `${calendarQuarterLabel(today)} flexi`;
   const bookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
   const leaveRemaining = Math.max(0, store.allowance - bookedWeekdays.size);
   const leaveOpportunities = buildLeaveOpportunities(selectedBankHolidays, bookedWeekdays);
@@ -265,21 +299,24 @@ export default function Home() {
           <button className={tab === "week" ? "active" : ""} onClick={() => setTab("week")}>This week</button>
           <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button>
           <button className={tab === "leave" ? "active" : ""} onClick={() => setTab("leave")}>Time off</button>
+          <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}>Settings</button>
         </nav>
         <div className={`save-state ${savedFlash ? "saving" : ""} ${saveStatus === "error" ? "failed" : ""}`}><span>●</span> {saveStatus === "saving" ? "Saving…" : saveStatus === "error" ? "Save failed" : "Saved securely"}</div>
         <div className="account-menu"><span>{user.email}</span><button onClick={signOut}>Sign out</button></div>
       </header>
 
       <section className="hero">
-        <div><p className="eyebrow">YOUR TIME, YOURS</p><h1>{tab === "leave" ? "Plan the escape." : tab === "history" ? "The bigger picture." : "Get the week done."}</h1><p className="lede">{tab === "leave" ? "Keep your allowance honest and your next adventure visible." : "A calmer way to log the hours — and keep the weekend in sight."}</p></div>
+        <div><p className="eyebrow">YOUR TIME, YOURS</p><h1>{tab === "leave" ? "Plan the escape." : tab === "history" ? "The bigger picture." : tab === "settings" ? "Set your rhythm." : "Get the week done."}</h1><p className="lede">{tab === "leave" ? "Keep your allowance honest and your next adventure visible." : tab === "settings" ? "Tell Leavebird your working week and we’ll keep your flexi balance in view." : "A calmer way to log the hours — and keep the weekend in sight."}</p></div>
         <div className="hero-stats">
           <div><span>This week</span><strong>{fmt(weekTotal)}</strong></div>
           <div><span>Financial year</span><strong>{fmt(fyTotal)}</strong></div>
+          <FlexiStat label={monthFlexiLabel} balance={monthFlexi.balance} configured={flexiConfigured} />
+          <FlexiStat label={quarterFlexiLabel} balance={quarterFlexi.balance} configured={flexiConfigured} />
           <div className="sun-stat"><span>Leave left</span><strong>{leaveRemaining}d</strong></div>
         </div>
       </section>
 
-      {tab !== "leave" && (
+      {(tab === "week" || tab === "history") && (
         <section className="mode-bar">
           <div><span className="tiny-label">RECORD BY</span><div className="segmented" role="group" aria-label="Time entry mode"><button className={store.mode === "clock" ? "selected" : ""} onClick={() => setStore(s => ({ ...s, mode: "clock" }))}>Start & finish</button><button className={store.mode === "hours" ? "selected" : ""} onClick={() => setStore(s => ({ ...s, mode: "hours" }))}>Number of hours</button></div></div>
           <p>Breaks are entered in minutes and subtracted from each day. Number-of-hours mode accepts decimals.</p>
@@ -328,6 +365,41 @@ export default function Home() {
         </section>
         <WeekendReward unlocked />
       </>}
+
+      {tab === "settings" && (
+        <section className="settings-layout">
+          <section className="panel settings-card">
+            <p className="eyebrow coral">FLEXI-TIME SETTINGS</p>
+            <h2>Your contracted week</h2>
+            <p className="settings-intro">Add the hours you are contracted to work each week. Fractional hours are welcome — 37.5 works perfectly.</p>
+            <label htmlFor="contracted-hours">Contracted hours per week</label>
+            <div className="contracted-hours-control">
+              <input
+                id="contracted-hours"
+                type="number"
+                min="0.25"
+                step="0.25"
+                inputMode="decimal"
+                value={store.contractedHoursPerWeek ?? ""}
+                placeholder="37.5"
+                aria-describedby="contracted-hours-help"
+                aria-invalid={store.contractedHoursPerWeek !== null && store.contractedHoursPerWeek <= 0}
+                onChange={event => setStore(current => ({ ...current, contractedHoursPerWeek: event.target.value === "" ? null : Number(event.target.value) }))}
+                onBlur={() => setStore(current => ({ ...current, contractedHoursPerWeek: current.contractedHoursPerWeek && current.contractedHoursPerWeek > 0 ? current.contractedHoursPerWeek : null }))}
+              />
+              <span>hours</span>
+            </div>
+            <p id="contracted-hours-help" className="settings-help">Saved securely to your account and available on every signed-in device.</p>
+          </section>
+          <aside className="panel flexi-explainer">
+            <p className="eyebrow teal">HOW IT WORKS</p>
+            <h3>Hours over or under, at a glance.</h3>
+            <p>Leavebird compares your payable hours with your contracted hours, spread evenly across five weekdays.</p>
+            <div className="flexi-preview-row"><FlexiStat label={monthFlexiLabel} balance={monthFlexi.balance} configured={flexiConfigured} /><FlexiStat label={quarterFlexiLabel} balance={quarterFlexi.balance} configured={flexiConfigured} /></div>
+            <ul><li>Balances run to today.</li><li>Days without entered timesheets are assumed to be worked at your contracted hours.</li><li>Booked annual leave and bank holidays do not count against you.</li><li>Quarters follow the calendar year.</li></ul>
+          </aside>
+        </section>
+      )}
 
       {tab === "leave" && <>
         <section className="leave-layout">
