@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 type Mode = "clock" | "hours";
+type HoursFormat = "decimal" | "hhmm";
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
 type Leave = { id: string; start: string; end: string; label: string };
-type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode };
+type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
+type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; submissions: Record<string, Submission> };
 type User = { id: string; email: string };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
-const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock" };
+const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", submissions: {} };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -24,6 +26,11 @@ const hoursBetween = (start: string, end: string) => {
 };
 const netHours = (entry: Entry, _mode: Mode) => Math.max(0, (Number(entry.hours) || 0) - (Number(entry.breakHours) || 0));
 const fmt = (value: number) => `${Number(value.toFixed(2))}h`;
+const formattedHours = (value: number, format: HoursFormat) => {
+  if (format === "decimal") return Number(value.toFixed(2)).toString();
+  const minutes = Math.round(value * 60); return `${Math.floor(minutes / 60)}:${pad(minutes % 60)}`;
+};
+const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 const fullDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
@@ -49,6 +56,7 @@ export default function Home() {
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [leaveDraft, setLeaveDraft] = useState({ start: keyOf(new Date()), end: keyOf(new Date()), label: "Annual leave" });
   const [savedFlash, setSavedFlash] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -84,7 +92,26 @@ export default function Home() {
   }, [store, loaded, user]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-  const weekTotal = days.reduce((sum, day) => sum + netHours(store.entries[keyOf(day)] || emptyEntry(), store.mode), 0);
+  const currentWeekKey = keyOf(weekStart);
+  const weekGross = days.reduce((sum, day) => sum + (Number(store.entries[keyOf(day)]?.hours) || 0), 0);
+  const weekBreaks = days.reduce((sum, day) => sum + (Number(store.entries[keyOf(day)]?.breakHours) || 0), 0);
+  const weekTotal = Math.max(0, weekGross - weekBreaks);
+  const currentSubmission = store.submissions?.[currentWeekKey];
+  const weekChecks = useMemo(() => {
+    const errors: string[] = []; const missing: string[] = [];
+    days.forEach(day => {
+      if ([0, 6].includes(day.getDay())) return;
+      const entry = store.entries[keyOf(day)] || emptyEntry();
+      const dayName = day.toLocaleDateString("en-GB", { weekday: "long" });
+      const gross = Number(entry.hours) || 0; const breaks = Number(entry.breakHours) || 0;
+      if (store.mode === "clock" && Boolean(entry.start) !== Boolean(entry.end)) errors.push(`${dayName} needs both a start and finish time.`);
+      if (store.mode === "clock" && entry.start && entry.end && entry.end <= entry.start) errors.push(`${dayName}'s finish time must be after its start time.`);
+      if (breaks > gross) errors.push(`${dayName}'s break is longer than its recorded hours.`);
+      if (gross === 0) missing.push(dayName);
+    });
+    return { errors, missing };
+  }, [days, store.entries, store.mode]);
+  const weekReady = weekGross > 0 && weekChecks.errors.length === 0;
   const fyStart = financialYearStart(); const fyEnd = addDays(new Date(fyStart.getFullYear() + 1, 3, 6), -1);
   const fyTotal = Object.entries(store.entries).reduce((sum, [key, entry]) => {
     const date = fromKey(key); return date >= fyStart && date <= fyEnd ? sum + netHours(entry, store.mode) : sum;
@@ -92,11 +119,12 @@ export default function Home() {
   const bookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay())));
   const leaveRemaining = Math.max(0, store.allowance - bookedWeekdays.size);
 
-  const updateEntry = (dateKey: string, patch: Partial<Entry>) => setStore(current => ({ ...current, entries: { ...current.entries, [dateKey]: { ...(current.entries[dateKey] || emptyEntry()), ...patch } } }));
+  const reopenCurrentWeek = (current: Store) => { const submissions = { ...(current.submissions || {}) }; delete submissions[currentWeekKey]; return submissions; };
+  const updateEntry = (dateKey: string, patch: Partial<Entry>) => setStore(current => ({ ...current, submissions: reopenCurrentWeek(current), entries: { ...current.entries, [dateKey]: { ...(current.entries[dateKey] || emptyEntry()), ...patch } } }));
   const updateClockEntry = (dateKey: string, patch: Pick<Partial<Entry>, "start" | "end">) => setStore(current => {
     const next = { ...(current.entries[dateKey] || emptyEntry()), ...patch };
     next.hours = hoursBetween(next.start, next.end);
-    return { ...current, entries: { ...current.entries, [dateKey]: next } };
+    return { ...current, submissions: reopenCurrentWeek(current), entries: { ...current.entries, [dateKey]: next } };
   });
   const changeWeek = (amount: number) => setWeekStart(current => addDays(current, amount * 7));
   const addLeave = () => {
@@ -110,6 +138,37 @@ export default function Home() {
   const importData = async (file?: File) => {
     if (!file) return; try { const parsed = JSON.parse(await file.text()); setStore({ ...initialStore, ...parsed }); } catch { alert("That backup file could not be read."); }
   };
+  const weekRows = () => days.map(day => {
+    const entry = store.entries[keyOf(day)] || emptyEntry(); const gross = Number(entry.hours) || 0; const breaks = Number(entry.breakHours) || 0;
+    return { date: keyOf(day), day: day.toLocaleDateString("en-GB", { weekday: "long" }), entry, gross, breaks, payable: Math.max(0, gross - breaks) };
+  });
+  const copyWeek = async () => {
+    const heading = ["Date", "Day", "Start", "Finish", `Gross (${store.hoursFormat === "decimal" ? "decimal" : "HH:MM"})`, "Break", "Payable", "Note"];
+    const rows = weekRows().map(row => [row.date, row.day, row.entry.start, row.entry.end, formattedHours(row.gross, store.hoursFormat), formattedHours(row.breaks, store.hoursFormat), formattedHours(row.payable, store.hoursFormat), row.entry.note]);
+    try { await navigator.clipboard.writeText([heading, ...rows].map(row => row.join("\t")).join("\n")); setCopyStatus("copied"); setTimeout(() => setCopyStatus("idle"), 2200); }
+    catch { setCopyStatus("error"); }
+  };
+  const downloadCsv = () => {
+    const heading = ["Date", "Day", "Start", "Finish", "Gross", "Break", "Payable", "Note"];
+    const rows = weekRows().map(row => [row.date, row.day, row.entry.start, row.entry.end, formattedHours(row.gross, store.hoursFormat), formattedHours(row.breaks, store.hoursFormat), formattedHours(row.payable, store.hoursFormat), row.entry.note]);
+    const blob = new Blob([[heading, ...rows].map(row => row.map(csvCell).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `leavebird-week-${currentWeekKey}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  const downloadPdf = async () => {
+    const { jsPDF } = await import("jspdf"); const pdf = new jsPDF();
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(19); pdf.text("Leavebird weekly timesheet", 16, 18);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.text(`${fullDate(weekStart)} to ${fullDate(addDays(weekStart, 6))}`, 16, 27);
+    pdf.setFont("helvetica", "bold"); pdf.text(`Gross ${formattedHours(weekGross, store.hoursFormat)}   Breaks ${formattedHours(weekBreaks, store.hoursFormat)}   Payable ${formattedHours(weekTotal, store.hoursFormat)}`, 16, 37);
+    pdf.setFontSize(9); pdf.text("Day", 16, 49); pdf.text("Start", 52, 49); pdf.text("Finish", 73, 49); pdf.text("Gross", 96, 49); pdf.text("Break", 119, 49); pdf.text("Payable", 142, 49); pdf.text("Note", 167, 49);
+    pdf.setFont("helvetica", "normal");
+    weekRows().forEach((row, index) => { const y = 57 + index * 9; pdf.text(row.day.slice(0, 3), 16, y); pdf.text(row.entry.start || "-", 52, y); pdf.text(row.entry.end || "-", 73, y); pdf.text(formattedHours(row.gross, store.hoursFormat), 96, y); pdf.text(formattedHours(row.breaks, store.hoursFormat), 119, y); pdf.text(formattedHours(row.payable, store.hoursFormat), 142, y); pdf.text(row.entry.note.slice(0, 25) || "-", 167, y, { maxWidth: 28 }); });
+    pdf.save(`leavebird-week-${currentWeekKey}.pdf`);
+  };
+  const markSubmitted = () => {
+    if (!weekReady) return;
+    setStore(current => ({ ...current, submissions: { ...(current.submissions || {}), [currentWeekKey]: { submittedAt: new Date().toISOString(), format: current.hoursFormat, grossHours: weekGross, breakHours: weekBreaks, netHours: weekTotal } } }));
+  };
+  const reopenWeek = () => setStore(current => ({ ...current, submissions: reopenCurrentWeek(current) }));
 
   const historicalWeeks = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -172,13 +231,27 @@ export default function Home() {
           </div>
           <div className="sheet-total"><span>Week total</span><strong>{fmt(weekTotal)}</strong></div>
         </section>
+        <section className={`panel completion-panel ${currentSubmission ? "submitted" : weekReady ? "ready" : "review"}`}>
+          <div className="completion-copy">
+            <p className="eyebrow coral">{currentSubmission ? "SUBMITTED" : "READY TO HAND OVER"}</p>
+            <h2>{currentSubmission ? "This week is marked as submitted." : weekReady ? "Your week is ready to submit." : "A quick check before you submit."}</h2>
+            <p>{currentSubmission ? `Submitted ${new Date(currentSubmission.submittedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}. Reopen it if you need to make a correction.` : "Review the totals, choose your employer's preferred format, then copy or download the week."}</p>
+            {!currentSubmission && weekChecks.errors.length > 0 && <ul className="check-list errors">{weekChecks.errors.map(error => <li key={error}>! {error}</li>)}</ul>}
+            {!currentSubmission && weekChecks.missing.length > 0 && <p className="missing-note">Review: no hours recorded for {weekChecks.missing.join(", ")}.</p>}
+          </div>
+          <div className="completion-tools">
+            <div className="total-strip"><div><span>Gross hours</span><strong>{fmt(weekGross)}</strong></div><div><span>Breaks</span><strong>{fmt(weekBreaks)}</strong></div><div><span>Payable</span><strong>{fmt(weekTotal)}</strong></div></div>
+            <div className="format-choice"><span>Employer format</span><div className="segmented" role="group" aria-label="Employer hours format"><button className={store.hoursFormat === "decimal" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "decimal" }))}>Decimal</button><button className={store.hoursFormat === "hhmm" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "hhmm" }))}>HH:MM</button></div></div>
+            <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
+          </div>
+        </section>
         <Deals kind="weekend" />
       </>}
 
       {tab === "history" && <>
         <section className="history-grid">
           <div className="panel history-panel"><div className="panel-heading"><div><p className="eyebrow coral">YOUR HISTORY</p><h2>Weeks on record</h2></div><span className="fy-pill">FY {fyStart.getFullYear()}/{String(fyEnd.getFullYear()).slice(-2)}</span></div>
-            {historicalWeeks.length ? <div className="history-list">{historicalWeeks.map(([monday, total]) => <button key={monday} onClick={() => { setWeekStart(fromKey(monday)); setTab("week"); }}><span><b>{fullDate(fromKey(monday))}</b><small>Week ending {shortDate(addDays(fromKey(monday), 6))}</small></span><strong>{fmt(total)}</strong><i>→</i></button>)}</div> : <div className="empty-state"><span>✦</span><h3>Your history starts here</h3><p>Add some hours to this week and they’ll appear here automatically.</p><button onClick={() => setTab("week")}>Log this week</button></div>}
+            {historicalWeeks.length ? <div className="history-list">{historicalWeeks.map(([monday, total]) => { const submission = store.submissions?.[monday]; return <button key={monday} onClick={() => { setWeekStart(fromKey(monday)); setTab("week"); }}><span><b>{fullDate(fromKey(monday))}</b><small>Week ending {shortDate(addDays(fromKey(monday), 6))}</small><em className={submission ? "submitted" : "draft"}>{submission ? "✓ Submitted" : "Draft"}</em></span><strong>{fmt(total)}</strong><i>→</i></button>; })}</div> : <div className="empty-state"><span>✦</span><h3>Your history starts here</h3><p>Add some hours to this week and they’ll appear here automatically.</p><button onClick={() => setTab("week")}>Log this week</button></div>}
           </div>
           <aside className="panel data-panel"><p className="eyebrow">SYNCED & PRIVATE</p><h3>Your records follow you.</h3><p>Sign in on another browser or device and your timesheets and leave will be waiting. You can still download a personal backup whenever you like.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
         </section>
