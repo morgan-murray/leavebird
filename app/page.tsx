@@ -46,6 +46,16 @@ function datesInRange(start: string, end: string) {
   return dates;
 }
 
+function TimeField({ id, label, dayName, value, onChange }: { id: string; label: "Start" | "Finish"; dayName: string; value: string; onChange: (value: string) => void }) {
+  return <div className="time-field">
+    <label className="time-field-label" htmlFor={id}>{label}</label>
+    <div className="time-control">
+      <input id={id} type="time" value={value} aria-label={`${label} time for ${dayName}`} onChange={event => onChange(event.target.value)} />
+      {value && <button type="button" className="time-clear" aria-label={`Clear ${label.toLowerCase()} time for ${dayName}`} title={`Clear ${label.toLowerCase()} time`} onClick={() => onChange("")}><span aria-hidden="true">×</span></button>}
+    </div>
+  </div>;
+}
+
 export default function Home() {
   const [store, setStore] = useState<Store>(initialStore);
   const [loaded, setLoaded] = useState(false);
@@ -222,9 +232,9 @@ export default function Home() {
           <div className="panel-heading"><div><p className="eyebrow coral">WEEKLY TIMESHEET</p><h2>{shortDate(weekStart)} — {fullDate(addDays(weekStart, 6))}</h2></div><div className="week-nav"><button onClick={() => changeWeek(-1)} aria-label="Previous week">←</button><button onClick={() => setWeekStart(mondayOf(new Date()))}>Today</button><button onClick={() => changeWeek(1)} aria-label="Next week">→</button></div></div>
           <div className="sheet-head"><span>Day</span><span>{store.mode === "clock" ? "Start" : "Hours"}</span>{store.mode === "clock" && <span>Finish</span>}<span>Break (min)</span><span>Note</span><span>Total</span></div>
           <div className="sheet-rows">
-            {days.map(day => { const key = keyOf(day); const entry = store.entries[key] || emptyEntry(); const weekend = [0, 6].includes(day.getDay()); return <div className={`day-row ${weekend ? "weekend" : ""}`} key={key}>
+            {days.map(day => { const key = keyOf(day); const entry = store.entries[key] || emptyEntry(); const weekend = [0, 6].includes(day.getDay()); const dayName = day.toLocaleDateString("en-GB", { weekday: "long" }); return <div className={`day-row ${weekend ? "weekend" : ""}`} key={key}>
               <div className="day-name"><b>{day.toLocaleDateString("en-GB", { weekday: "short" })}</b><span>{day.getDate()}</span></div>
-              {store.mode === "clock" ? <><label><span className="mobile-only">Start</span><input type="time" value={entry.start} onChange={e => updateClockEntry(key, { start: e.target.value })} /></label><label><span className="mobile-only">Finish</span><input type="time" value={entry.end} onChange={e => updateClockEntry(key, { end: e.target.value })} /></label></> : <label><span className="mobile-only">Hours</span><input type="number" min="0" step="0.25" value={entry.hours || ""} placeholder="0" onChange={e => updateEntry(key, { hours: Number(e.target.value) })} /></label>}
+              {store.mode === "clock" ? <><TimeField id={`start-${key}`} label="Start" dayName={dayName} value={entry.start} onChange={start => updateClockEntry(key, { start })} /><TimeField id={`finish-${key}`} label="Finish" dayName={dayName} value={entry.end} onChange={end => updateClockEntry(key, { end })} /></> : <label><span className="mobile-only">Hours</span><input type="number" min="0" step="0.25" value={entry.hours || ""} placeholder="0" onChange={e => updateEntry(key, { hours: Number(e.target.value) })} /></label>}
               <label><span className="mobile-only">Break (min)</span><input type="number" min="0" step="1" value={entry.breakHours ? Number((entry.breakHours * 60).toFixed(2)) : ""} placeholder="0" aria-label={`Break in minutes for ${day.toLocaleDateString("en-GB", { weekday: "long" })}`} onChange={e => updateEntry(key, { breakHours: Number(e.target.value) / 60 })} /></label>
               <label className="note-field"><span className="mobile-only">Note</span><input value={entry.note} placeholder={weekend ? "Weekend plans?" : "What did you work on?"} onChange={e => updateEntry(key, { note: e.target.value })} /></label>
               <strong className="row-total">{fmt(netHours(entry, store.mode))}</strong>
