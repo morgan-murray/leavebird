@@ -245,7 +245,7 @@ export default function Home() {
             <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
           </div>
         </section>
-        <Deals kind="weekend" />
+        <WeekendReward unlocked={Boolean(currentSubmission)} />
       </>}
 
       {tab === "history" && <>
@@ -255,7 +255,7 @@ export default function Home() {
           </div>
           <aside className="panel data-panel"><p className="eyebrow">SYNCED & PRIVATE</p><h3>Your records follow you.</h3><p>Sign in on another browser or device and your timesheets and leave will be waiting. You can still download a personal backup whenever you like.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
         </section>
-        <Deals kind="weekend" />
+        <WeekendReward unlocked />
       </>}
 
       {tab === "leave" && <>
@@ -305,6 +305,47 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
       <p className="auth-switch">{mode === "login" ? "New to Leavebird?" : "Already have an account?"} <button type="button" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>{mode === "login" ? "Create an account!" : "Sign in"}</button></p>
     </form></section>
   </main>;
+}
+
+function WeekendReward({ unlocked }: { unlocked: boolean }) {
+  const offers = [
+    {
+      type: "Comedy & brunch", title: "Big Belly Comedy Club", location: "South Bank, London",
+      price: "From £24.95", saving: "Up to 50% off", availability: "Weekend sessions listed", source: "Groupon",
+      url: "https://www.groupon.co.uk/deals/big-belly-comedy-club-1", image: "/deals/comedy.jpg",
+      imageAlt: "A comedian performing with a microphone", credit: "Photo: James Cridland · CC BY 2.0",
+    },
+    {
+      type: "Art & culture", title: "Moco Museum entry", location: "Marble Arch, London",
+      price: "From £9", saving: "Up to 43% off", availability: "Open Fri–Sat until 7pm", source: "Wowcher",
+      url: "https://www.wowcher.co.uk/deal/london/40974160/moco-museum-entry-ticket", image: "/deals/moco.jpg",
+      imageAlt: "Inside Moco Museum in London", credit: "Photo: Matt Brown · CC BY 2.0",
+    },
+    {
+      type: "Sightseeing", title: "Thames sightseeing cruise", location: "Central London piers",
+      price: "From £7", saving: "Up to 32% off", availability: "Runs Sat & Sun · every 20–40 min", source: "Wowcher",
+      url: "https://www.wowcher.co.uk/deal/london/activities-entertainment/river-cruises/45329263/thames-river-sightseeing-cruise-tickets", image: "/deals/thames.jpg",
+      imageAlt: "A City Cruises boat on the River Thames", credit: "Photo: Cnbrb · public domain",
+    },
+  ];
+
+  if (!unlocked) return <section className="weekend-teaser" aria-label="Weekend ideas locked until submission">
+    <div className="teaser-icon" aria-hidden="true">✦</div>
+    <div><p className="eyebrow">YOUR REWARD IS WAITING</p><h2>Weekend ideas unlock when the week is done.</h2><p>Mark this timesheet as submitted and we’ll reveal three timely ways to make your time off count.</p></div>
+    <span className="teaser-lock">LOCKED · FOR NOW</span>
+  </section>;
+
+  return <section className="weekend-reward">
+    <div className="reward-celebration">
+      <div><p className="eyebrow">TIMESHEET DONE</p><h2>Weekend unlocked.</h2><p>You clocked the hours. Here are three ways to spend the good ones.</p></div>
+      <span className="reward-stamp" aria-hidden="true">OFF<br />DUTY</span>
+    </div>
+    <div className="reward-heading"><div><p className="eyebrow coral">THIS WEEKEND · LONDON</p><h3>Something fun, sorted.</h3></div><span>Prices checked 2 Aug · availability can change · handy links, not sponsored</span></div>
+    <div className="reward-cards">{offers.map(offer => <article key={offer.title} className="reward-card">
+      <div className="reward-image"><img src={offer.image} alt={offer.imageAlt} /><small>{offer.credit}</small><span>{offer.saving}</span></div>
+      <div className="reward-card-body"><p className="reward-type">{offer.type}</p><h4>{offer.title}</h4><p className="reward-location">⌖ {offer.location}</p><div className="reward-meta"><strong>{offer.price}</strong><span>✓ {offer.availability}</span></div><a href={offer.url} target="_blank" rel="noreferrer">View deal on {offer.source} <i>↗</i></a></div>
+    </article>)}</div>
+  </section>;
 }
 
 function Deals({ kind }: { kind: "weekend" | "holiday" }) {
