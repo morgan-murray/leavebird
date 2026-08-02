@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { dailyChirpDismissalKey, dailyChirpForDate } from "@/lib/daily-chirp";
 import {
   calculateFlexiBalance,
   calendarQuarterLabel,
@@ -129,7 +131,11 @@ export default function Home() {
   const [employerUrlError, setEmployerUrlError] = useState("");
   const [bankHolidays, setBankHolidays] = useState<BankHolidayData>(emptyBankHolidays);
   const [bankHolidayStatus, setBankHolidayStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [chirpVisible, setChirpVisible] = useState(false);
+  const [chirpDate] = useState(() => new Date());
   const importRef = useRef<HTMLInputElement>(null);
+  const dailyChirp = useMemo(() => dailyChirpForDate(chirpDate), [chirpDate]);
+  const chirpDismissalKey = useMemo(() => dailyChirpDismissalKey(chirpDate), [chirpDate]);
 
   useEffect(() => {
     fetch("/api/auth/me").then(response => response.json()).then(({ user: account }) => setUser(account)).finally(() => setAuthReady(true));
@@ -170,6 +176,19 @@ export default function Home() {
     }, 500);
     return () => clearTimeout(id);
   }, [store, loaded, user]);
+  useEffect(() => {
+    if (!loaded || saveStatus !== "saved") return;
+    const todayEntry = store.entries[keyOf(chirpDate)];
+    if (!todayEntry || (Number(todayEntry.hours) || 0) <= 0) return;
+    const reveal = window.setTimeout(() => {
+      try {
+        setChirpVisible(localStorage.getItem(chirpDismissalKey) !== "1");
+      } catch {
+        setChirpVisible(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(reveal);
+  }, [chirpDate, chirpDismissalKey, loaded, saveStatus, store.entries]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const currentWeekKey = keyOf(weekStart);
@@ -273,6 +292,10 @@ export default function Home() {
     setStore(current => ({ ...current, employerUrl: url })); setEmployerUrlDraft(url); setEmployerUrlError("");
   };
   const removeEmployerUrl = () => { setStore(current => ({ ...current, employerUrl: "" })); setEmployerUrlDraft(""); setEmployerUrlError(""); };
+  const dismissDailyChirp = () => {
+    try { localStorage.setItem(chirpDismissalKey, "1"); } catch { /* dismissal remains in memory for this visit */ }
+    setChirpVisible(false);
+  };
 
   const historicalWeeks = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -353,6 +376,16 @@ export default function Home() {
             <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{savedEmployerUrl && <a className="employer-open" href={savedEmployerUrl} target="_blank" rel="noopener noreferrer">Open employer timesheet ↗</a>}{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
           </div>
         </section>
+        {chirpVisible && <section className="panel daily-chirp" aria-labelledby="daily-chirp-title" aria-live="polite">
+          <div className="daily-chirp-art"><Image src={dailyChirp.image} alt={dailyChirp.alt} width={768} height={768} sizes="(max-width: 640px) calc(100vw - 24px), (max-width: 900px) 280px, 330px" /></div>
+          <div className="daily-chirp-copy">
+            <p className="eyebrow coral">TODAY’S DAILY CHIRP</p>
+            <h2 id="daily-chirp-title">{dailyChirp.caption}</h2>
+            <p>Your time is safely logged. A different chirp will land tomorrow.</p>
+            <span>Chirp {dailyChirp.id} of 60</span>
+          </div>
+          <button type="button" className="daily-chirp-close" onClick={dismissDailyChirp} aria-label="Dismiss today’s Daily Chirp">×</button>
+        </section>}
         <WeekendReward unlocked={Boolean(currentSubmission)} />
       </>}
 
