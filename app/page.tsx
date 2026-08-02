@@ -361,6 +361,16 @@ export default function Home() {
           </div>
           <div className="sheet-total"><span>Week total</span><strong>{fmt(weekTotal)}</strong></div>
         </section>
+        {chirpVisible && <section className="panel daily-chirp" aria-labelledby="daily-chirp-title" aria-live="polite">
+          <div className="daily-chirp-art"><Image src={dailyChirp.image} alt={dailyChirp.alt} width={768} height={768} sizes="(max-width: 640px) calc(100vw - 24px), (max-width: 900px) 280px, 330px" /></div>
+          <div className="daily-chirp-copy">
+            <p className="eyebrow coral">TODAY’S DAILY CHIRP</p>
+            <h2 id="daily-chirp-title">{dailyChirp.caption}</h2>
+            <p>Your time is safely logged. A different chirp will land tomorrow.</p>
+            <span>Chirp {dailyChirp.id} of 60</span>
+          </div>
+          <button type="button" className="daily-chirp-close" onClick={dismissDailyChirp} aria-label="Dismiss today’s Daily Chirp">×</button>
+        </section>}
         <section className={`panel completion-panel ${currentSubmission ? "submitted" : weekReady ? "ready" : "review"}`}>
           <div className="completion-copy">
             <p className="eyebrow coral">{currentSubmission ? "SUBMITTED" : "READY TO HAND OVER"}</p>
@@ -376,16 +386,6 @@ export default function Home() {
             <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{savedEmployerUrl && <a className="employer-open" href={savedEmployerUrl} target="_blank" rel="noopener noreferrer">Open employer timesheet ↗</a>}{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
           </div>
         </section>
-        {chirpVisible && <section className="panel daily-chirp" aria-labelledby="daily-chirp-title" aria-live="polite">
-          <div className="daily-chirp-art"><Image src={dailyChirp.image} alt={dailyChirp.alt} width={768} height={768} sizes="(max-width: 640px) calc(100vw - 24px), (max-width: 900px) 280px, 330px" /></div>
-          <div className="daily-chirp-copy">
-            <p className="eyebrow coral">TODAY’S DAILY CHIRP</p>
-            <h2 id="daily-chirp-title">{dailyChirp.caption}</h2>
-            <p>Your time is safely logged. A different chirp will land tomorrow.</p>
-            <span>Chirp {dailyChirp.id} of 60</span>
-          </div>
-          <button type="button" className="daily-chirp-close" onClick={dismissDailyChirp} aria-label="Dismiss today’s Daily Chirp">×</button>
-        </section>}
         <WeekendReward unlocked={Boolean(currentSubmission)} />
       </>}
 
