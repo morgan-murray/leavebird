@@ -529,12 +529,39 @@ export default function Home() {
   );
 }
 
+function oauthErrorMessage(code: string | null, provider: string | null) {
+  const name = provider === "apple" ? "Apple" : provider === "google" ? "Google" : "your provider";
+  const messages: Record<string, string> = {
+    cancelled: `Sign-in with ${name} was cancelled. You can try again or use your email and password.`,
+    unavailable_email: `${name} did not provide a verified email address. Allow email sharing, or use email and password instead.`,
+    account_conflict: `That ${name} identity cannot be linked automatically. Sign in another way or contact support.`,
+    configuration: `${name} sign-in is not configured yet. Use email and password for now.`,
+    expired: "That sign-in attempt expired. Please start again.",
+    failed: `We could not complete sign-in with ${name}. Please try again.`,
+  };
+  return code ? messages[code] ?? messages.failed : "";
+}
+function initialOAuthError() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return oauthErrorMessage(params.get("auth_error"), params.get("provider"));
+}
+
+
 function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialOAuthError);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("auth_error")) return;
+    params.delete("auth_error");
+    params.delete("provider");
+    window.history.replaceState({}, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
+  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError("");
@@ -549,6 +576,11 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
   return <main className="auth-shell">
     <section className="auth-story"><div className="auth-brand"><span className="brand-mark">↗</span><b>Leavebird</b></div><div><p className="eyebrow">YOUR TIME, ANYWHERE</p><h1>Get the week done.<br /><em>Plan the escape.</em></h1><p>Your timesheets, history and leave plans — waiting on every device.</p></div><div className="auth-stamps"><span>☀ LEAVE</span><span>✓ HOURS</span><span>↗ WEEKEND</span></div></section>
     <section className="auth-panel"><form onSubmit={submit}><p className="eyebrow coral">{mode === "login" ? "WELCOME BACK" : "MAKE IT YOURS"}</p><h2>{mode === "login" ? "Sign in to your time." : "Create your account."}</h2><p className="auth-copy">{mode === "login" ? "Your records are securely synced across your browsers and devices." : "Your existing browser timesheet will be brought into your new account automatically."}</p>
+      <div className="oauth-buttons" aria-label="Sign in with another provider">
+        <a className="oauth-button google" href="/api/auth/oauth/google/start"><span aria-hidden="true">G</span>Continue with Google</a>
+        <a className="oauth-button apple" href="/api/auth/oauth/apple/start"><span aria-hidden="true">●</span>Continue with Apple</a>
+      </div>
+      <div className="auth-divider"><span>or use email</span></div>
       <label>Email address<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></label>
       <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={mode === "register" ? 10 : undefined} value={password} onChange={event => setPassword(event.target.value)} placeholder={mode === "register" ? "At least 10 characters" : "Your password"} /></label>
       {error && <p className="auth-error" role="alert">{error}</p>}<button className="auth-submit" disabled={busy}>{busy ? "One moment…" : mode === "login" ? "Sign in ↗" : "Create account ↗"}</button>

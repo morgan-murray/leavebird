@@ -1,4 +1,4 @@
-import { Pool, type QueryResultRow } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 const globalForDb = globalThis as unknown as { clockedOffPool?: Pool };
 
@@ -21,4 +21,19 @@ function getPool() {
 
 export async function query<T extends QueryResultRow>(text: string, values: unknown[] = []) {
   return getPool().query<T>(text, values);
+}
+
+export async function withTransaction<T>(work: (client: PoolClient) => Promise<T>) {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
