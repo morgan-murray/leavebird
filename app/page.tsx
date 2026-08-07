@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import { FaApple } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { dailyChirpDismissalKey, dailyChirpForDate } from "@/lib/daily-chirp";
@@ -24,7 +23,7 @@ type LeaveOpportunity = { id: string; title: string; start: string; end: string;
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
 type Leave = { id: string; start: string; end: string; label: string; type: LeaveType };
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
-type OAuthAvailability = { google: boolean; apple: boolean };
+type OAuthAvailability = { google: boolean };
 type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null; contractedHoursPerDay: number | null; flexiPeriod: FlexiPeriod };
 type User = { id: string; email: string };
 
@@ -533,7 +532,7 @@ export default function Home() {
 }
 
 function oauthErrorMessage(code: string | null, provider: string | null) {
-  const name = provider === "apple" ? "Apple" : provider === "google" ? "Google" : "your provider";
+  const name = provider === "google" ? "Google" : "your provider";
   const messages: Record<string, string> = {
     cancelled: `Sign-in with ${name} was cancelled. You can try again or use your email and password.`,
     unavailable_email: `${name} did not provide a verified email address. Allow email sharing, or use email and password instead.`,
@@ -572,18 +571,16 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
     fetch("/api/auth/oauth/status")
       .then(response => response.ok ? response.json() as Promise<OAuthAvailability> : Promise.reject())
       .then(availability => { if (!cancelled) setOAuthAvailability(availability); })
-      .catch(() => { if (!cancelled) setOAuthAvailability({ google: false, apple: false }); });
+      .catch(() => { if (!cancelled) setOAuthAvailability({ google: false }); });
     return () => { cancelled = true; };
   }, []);
 
-  const oauthButton = (provider: "google" | "apple") => {
-    const label = provider === "google" ? "Google" : "Apple";
-    const Icon = provider === "google" ? FcGoogle : FaApple;
-    const content = <><Icon aria-hidden="true" />Continue with {label}</>;
-    if (oauthAvailability?.[provider]) {
-      return <a key={provider} className={`oauth-button ${provider}`} href={`/api/auth/oauth/${provider}/start`}>{content}</a>;
+  const googleButton = () => {
+    const content = <><FcGoogle aria-hidden="true" />Continue with Google</>;
+    if (oauthAvailability?.google) {
+      return <a className="oauth-button google" href="/api/auth/oauth/google/start">{content}</a>;
     }
-    return <button key={provider} type="button" className={`oauth-button ${provider}`} disabled={!oauthAvailability} onClick={() => setError(`${label} sign-in has not been connected to this Leavebird environment yet. Please use email and password for now.`)}>
+    return <button type="button" className="oauth-button google" disabled={!oauthAvailability} onClick={() => setError("Google sign-in has not been connected to this Leavebird environment yet. Please use email and password for now.")}>
       {content}
     </button>;
   };
@@ -602,7 +599,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
     <section className="auth-story"><div className="auth-brand"><span className="brand-mark">↗</span><b>Leavebird</b></div><div><p className="eyebrow">YOUR TIME, ANYWHERE</p><h1>Get the week done.<br /><em>Plan the escape.</em></h1><p>Your timesheets, history and leave plans — waiting on every device.</p></div><div className="auth-stamps"><span>☀ LEAVE</span><span>✓ HOURS</span><span>↗ WEEKEND</span></div></section>
     <section className="auth-panel"><form onSubmit={submit}><p className="eyebrow coral">{mode === "login" ? "WELCOME BACK" : "MAKE IT YOURS"}</p><h2>{mode === "login" ? "Sign in to your time." : "Create your account."}</h2><p className="auth-copy">{mode === "login" ? "Your records are securely synced across your browsers and devices." : "Your existing browser timesheet will be brought into your new account automatically."}</p>
       <div className="oauth-buttons" aria-label="Sign in with another provider">
-        {(["google", "apple"] as const).map(oauthButton)}
+        {googleButton()}
       </div>
       {error && <p className="auth-error" role="alert">{error}</p>}
       <div className="auth-divider"><span>or use email</span></div>

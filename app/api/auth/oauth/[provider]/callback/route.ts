@@ -12,14 +12,3 @@ export async function GET(request: Request, context: Context) {
     error: params.get("error"),
   });
 }
-
-export async function POST(request: Request, context: Context) {
-  const { provider } = await context.params;
-  if (!isOAuthProvider(provider)) return Response.json({ error: "Unknown sign-in provider." }, { status: 404 });
-  const form = await request.formData();
-  return completeOAuth(request, provider, {
-    code: form.get("code")?.toString(),
-    state: form.get("state")?.toString(),
-    error: form.get("error")?.toString(),
-  });
-}

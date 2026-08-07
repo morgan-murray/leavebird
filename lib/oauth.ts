@@ -1,10 +1,10 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { createRemoteJWKSet, importPKCS8, SignJWT, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createSession } from "./auth";
 import { withTransaction } from "./db";
 
-export type OAuthProvider = "google" | "apple";
+export type OAuthProvider = "google";
 
 type Transaction = {
   provider: OAuthProvider;
@@ -22,10 +22,9 @@ type Identity = {
 
 const TRANSACTION_MINUTES = 10;
 const secureCookie = () => process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false";
-const providerNames: Record<OAuthProvider, string> = { google: "Google", apple: "Apple" };
 
 export function isOAuthProvider(value: string): value is OAuthProvider {
-  return value === "google" || value === "apple";
+  return value === "google";
 }
 
 export function safeReturnTo(value: string | null) {
@@ -33,7 +32,7 @@ export function safeReturnTo(value: string | null) {
 }
 
 export function oauthErrorMessage(code: string | null, provider: string | null) {
-  const name = provider === "apple" ? "Apple" : provider === "google" ? "Google" : "your provider";
+  const name = provider === "google" ? "Google" : "your provider";
   const messages: Record<string, string> = {
     cancelled: `Sign-in with ${name} was cancelled. You can try again or use your email and password.`,
     unavailable_email: `${name} did not provide a verified email address. Allow email sharing, or use email and password instead.`,
@@ -85,24 +84,17 @@ function readTransaction(value: string | undefined, provider: OAuthProvider) {
   return transaction;
 }
 
-function configuration(provider: OAuthProvider) {
-  if (provider === "google") {
-    return {
-      clientId: env("GOOGLE_CLIENT_ID"),
-      authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenEndpoint: "https://oauth2.googleapis.com/token",
-    };
-  }
+function configuration() {
   return {
-    clientId: env("APPLE_CLIENT_ID"),
-    authorizationEndpoint: "https://appleid.apple.com/auth/authorize",
-    tokenEndpoint: "https://appleid.apple.com/auth/token",
+    clientId: env("GOOGLE_CLIENT_ID"),
+    authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenEndpoint: "https://oauth2.googleapis.com/token",
   };
 }
 
 export async function beginOAuth(request: Request, provider: OAuthProvider) {
   try {
-    const config = configuration(provider);
+    const config = configuration();
     const state = randomToken();
     const nonce = randomToken();
     const verifier = randomToken(48);
@@ -111,8 +103,8 @@ export async function beginOAuth(request: Request, provider: OAuthProvider) {
     const jar = await cookies();
     jar.set(cookieName(provider), signTransaction(transaction), {
       httpOnly: true,
-      sameSite: provider === "apple" ? "none" : "lax",
-      secure: provider === "apple" ? true : secureCookie(),
+      sameSite: "lax",
+      secure: secureCookie(),
       path: "/api/auth/oauth",
       maxAge: TRANSACTION_MINUTES * 60,
     });
@@ -125,46 +117,25 @@ export async function beginOAuth(request: Request, provider: OAuthProvider) {
       state,
       nonce,
     });
-    if (provider === "google") {
-      params.set("code_challenge", createHash("sha256").update(verifier).digest("base64url"));
-      params.set("code_challenge_method", "S256");
-      params.set("prompt", "select_account");
-    } else {
-      params.set("response_mode", "form_post");
-    }
+    params.set("code_challenge", createHash("sha256").update(verifier).digest("base64url"));
+    params.set("code_challenge_method", "S256");
+    params.set("prompt", "select_account");
     return Response.redirect(`${config.authorizationEndpoint}?${params}`, 302);
   } catch (error) {
     return redirectWithError(request, provider, error);
   }
 }
 
-async function appleClientSecret() {
-  const privateKey = Buffer.from(env("APPLE_PRIVATE_KEY_BASE64"), "base64").toString("utf8");
-  const key = await importPKCS8(privateKey, "ES256");
-  return new SignJWT({})
-    .setProtectedHeader({ alg: "ES256", kid: env("APPLE_KEY_ID") })
-    .setIssuer(env("APPLE_TEAM_ID"))
-    .setAudience("https://appleid.apple.com")
-    .setSubject(env("APPLE_CLIENT_ID"))
-    .setIssuedAt()
-    .setExpirationTime("5m")
-    .sign(key);
-}
-
 async function exchangeCode(request: Request, provider: OAuthProvider, code: string, transaction: Transaction) {
-  const config = configuration(provider);
+  const config = configuration();
   const params = new URLSearchParams({
     grant_type: "authorization_code",
     code,
     client_id: config.clientId,
     redirect_uri: callbackUrl(request, provider),
   });
-  if (provider === "google") {
-    params.set("client_secret", env("GOOGLE_CLIENT_SECRET"));
-    params.set("code_verifier", transaction.verifier);
-  } else {
-    params.set("client_secret", await appleClientSecret());
-  }
+  params.set("client_secret", env("GOOGLE_CLIENT_SECRET"));
+  params.set("code_verifier", transaction.verifier);
   const response = await fetch(config.tokenEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -175,13 +146,11 @@ async function exchangeCode(request: Request, provider: OAuthProvider, code: str
   return result.id_token;
 }
 
-async function verifyIdentity(provider: OAuthProvider, idToken: string, nonce: string): Promise<Identity> {
-  const clientId = configuration(provider).clientId;
-  const jwks = createRemoteJWKSet(new URL(provider === "google"
-    ? "https://www.googleapis.com/oauth2/v3/certs"
-    : "https://appleid.apple.com/auth/keys"));
+async function verifyIdentity(idToken: string, nonce: string): Promise<Identity> {
+  const clientId = configuration().clientId;
+  const jwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
   const { payload } = await jwtVerify(idToken, jwks, {
-    issuer: provider === "google" ? ["https://accounts.google.com", "accounts.google.com"] : "https://appleid.apple.com",
+    issuer: ["https://accounts.google.com", "accounts.google.com"],
     audience: clientId,
   });
   if (payload.nonce !== nonce) throw new OAuthError("failed", "Nonce mismatch");
@@ -238,10 +207,10 @@ export async function completeOAuth(
     if (values.error) throw new OAuthError(values.error === "access_denied" ? "cancelled" : "failed");
     const jar = await cookies();
     const transaction = readTransaction(jar.get(cookieName(provider))?.value, provider);
-    jar.set(cookieName(provider), "", { httpOnly: true, sameSite: provider === "apple" ? "none" : "lax", secure: provider === "apple" ? true : secureCookie(), path: "/api/auth/oauth", maxAge: 0 });
+    jar.set(cookieName(provider), "", { httpOnly: true, sameSite: "lax", secure: secureCookie(), path: "/api/auth/oauth", maxAge: 0 });
     if (!values.code || !values.state || values.state !== transaction.state) throw new OAuthError("expired");
     const idToken = await exchangeCode(request, provider, values.code, transaction);
-    const identity = await verifyIdentity(provider, idToken, transaction.nonce);
+    const identity = await verifyIdentity(idToken, transaction.nonce);
     const userId = await findOrCreateUser(provider, identity);
     await createSession(userId);
     return Response.redirect(new URL(transaction.returnTo, baseUrl(request)), 303);
@@ -258,7 +227,7 @@ class OAuthError extends Error {
 
 function redirectWithError(request: Request, provider: OAuthProvider, error: unknown) {
   const code = error instanceof OAuthError ? error.code : "failed";
-  if (!(error instanceof OAuthError) || code === "failed") console.error(`${providerNames[provider]} OAuth failed`, error);
+  if (!(error instanceof OAuthError) || code === "failed") console.error("Google OAuth failed", error);
   const target = new URL("/", baseUrl(request));
   target.searchParams.set("auth_error", code);
   target.searchParams.set("provider", provider);

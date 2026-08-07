@@ -13,29 +13,20 @@ In production, serve the app over HTTPS so the secure session cookie is protecte
 
 For the included container deployment, set `POSTGRES_PASSWORD` and `SITE_HOST` in `.env`, then run `docker compose up -d --build`. Postgres is kept on the private Docker network; Caddy publishes ports 80 and 443 and manages HTTPS automatically.
 
-## Google and Apple sign-in
+## Google sign-in
 
 OAuth sign-in is optional: email and password continue to work when provider
 credentials are absent. Copy the OAuth values from `.env.example` into the
 deployment environment and generate `OAUTH_STATE_SECRET` from at least 32
 random bytes. Never expose these values to browser code or commit them.
 
-Register these exact production callback URLs:
-
-- Google: `https://leavebird.com/api/auth/oauth/google/callback`
-- Apple: `https://leavebird.com/api/auth/oauth/apple/callback`
+Production callback: `https://leavebird.com/api/auth/oauth/google/callback`
 
 For Google, create a Web application OAuth client and set
 `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Add the production callback
 as an authorised redirect URI. A localhost callback may be added separately for
 development.
 
-For Apple, configure a Services ID for `leavebird.com`, create a Sign in with
-Apple private key, and set `APPLE_CLIENT_ID` (the Services ID),
-`APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY_BASE64`. Encode the
-downloaded `.p8` file as one base64 string before placing it in the environment.
-Apple's web return URL must use HTTPS, so use the production domain or an HTTPS
-development tunnel for end-to-end testing.
 
 OAuth identities are stored separately from users. When a provider supplies the
 same verified email as an existing Leavebird account, the identity is linked to
