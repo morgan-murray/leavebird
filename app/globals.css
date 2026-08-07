@@ -74,3 +74,38 @@ footer { padding:30px max(24px,calc((100vw - 1280px)/2)); background:#e6e1d5; di
 .calendar-grid>div.booked.flexi-leave:after { background:#6743b5; }
 .calendar-grid>div.booked.flexi-leave .leave-name { color:#533493; }
 .calendar-grid>div.bank-holiday.booked.flexi-leave { background:linear-gradient(135deg,#ebf6f0 0 50%,#e6ddff 50% 100%); border-color:#7867af; }
+
+/* Annual allowance uses an explicit view/edit/save flow. */
+.allowance-top { align-items:flex-start; }
+.allowance-top>span { line-height:1; }
+.allowance-content { min-width:0; width:100%; }
+.allowance-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.allowance-heading .eyebrow { margin:0 0 2px; font-size:8px; }
+.allowance-heading h3 { font-size:17px; line-height:1.2; }
+.allowance-edit { min-height:36px; flex:none; border:1px solid rgba(23,51,45,.35); border-radius:8px; padding:7px 9px; background:rgba(255,255,255,.4); color:var(--ink); cursor:pointer; font-size:10px; font-weight:800; }
+.allowance-edit:hover { background:white; }
+.allowance-edit:focus-visible,.allowance-actions button:focus-visible { outline:3px solid rgba(45,135,120,.28); outline-offset:2px; }
+.allowance-top .allowance-help { margin:8px 0 0; color:#52615d; font-size:10px; font-weight:400; line-height:1.45; }
+.allowance-display { display:flex; align-items:baseline; gap:7px; margin-top:12px; }
+.allowance-display strong { font:800 34px "Manrope"; }
+.allowance-display span { font-size:11px; font-weight:700; }
+.allowance-form { margin-top:13px; }
+.allowance-top .allowance-form>label { display:block; }
+.allowance-form>label>span:first-child { display:block; margin-bottom:6px; font-size:10px; font-weight:800; }
+.allowance-input { display:flex; align-items:stretch; overflow:hidden; border:1px solid rgba(23,51,45,.45); border-radius:9px; background:white; }
+.allowance-input:focus-within { border-color:var(--teal); box-shadow:0 0 0 3px rgba(45,135,120,.15); }
+.allowance-top .allowance-input input { min-width:0; width:100%; min-height:44px; border:0; outline:0; padding:8px 10px; background:white; color:var(--ink); font:800 22px "Manrope"; }
+.allowance-input small { display:grid; place-items:center; padding:0 11px; background:var(--mint); color:var(--teal); font-size:10px; font-weight:800; }
+.allowance-input input[aria-invalid="true"] { color:#9c3d23; }
+.allowance-top .allowance-error { margin:7px 0 0; color:#8d321d; font-size:10px; font-weight:800; line-height:1.35; }
+.allowance-actions { display:grid; grid-template-columns:1fr auto; gap:8px; margin-top:10px; }
+.allowance-actions button { min-height:42px; border:1px solid var(--ink); border-radius:8px; padding:8px 11px; background:var(--ink); color:white; cursor:pointer; font-size:10px; font-weight:800; }
+.allowance-actions button+button { background:transparent; color:var(--ink); }
+.allowance-top .allowance-updated { margin:8px 0 0; color:var(--teal); font-size:10px; font-weight:800; }
+
+@media(max-width:640px) {
+  .allowance-card { padding:20px; }
+  .allowance-top>span { font-size:32px; }
+  .allowance-heading { align-items:stretch; flex-direction:column; }
+  .allowance-edit { width:100%; min-height:44px; }
+}
