@@ -11,6 +11,14 @@ import {
   flexiPeriodBounds,
   isRangeWithinFlexiPeriod,
 } from "@/lib/flexi";
+import {
+  DEFAULT_LEAVE_YEAR_START,
+  daysInLeaveYearMonth,
+  formatLeaveYearStart,
+  leaveYearBoundaryParts,
+  leaveYearBounds,
+  normaliseLeaveYearStart,
+} from "@/lib/leave-year";
 
 type Mode = "clock" | "hours";
 type HoursFormat = "decimal" | "hhmm";
@@ -24,12 +32,12 @@ type Entry = { start: string; end: string; hours: number; breakHours: number; no
 type Leave = { id: string; start: string; end: string; label: string; type: LeaveType };
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
 type OAuthAvailability = { google: boolean };
-type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null; contractedHoursPerDay: number | null; flexiPeriod: FlexiPeriod };
+type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null; contractedHoursPerDay: number | null; flexiPeriod: FlexiPeriod; leaveYearStart: string | null };
 type User = { id: string; email: string; isAdmin: boolean };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
-const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {}, contractedHoursPerWeek: null, contractedHoursPerDay: null, flexiPeriod: "monthly" };
+const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {}, contractedHoursPerWeek: null, contractedHoursPerDay: null, flexiPeriod: "monthly", leaveYearStart: null };
 const emptyBankHolidays: BankHolidayData = { "england-and-wales": [], scotland: [], "northern-ireland": [] };
 const divisionLabels: Record<BankHolidayDivision, string> = { "england-and-wales": "England & Wales", scotland: "Scotland", "northern-ireland": "Northern Ireland" };
 
@@ -40,6 +48,7 @@ function normaliseStore(value: Partial<Store>): Store {
     ...merged,
     contractedHoursPerDay: merged.contractedHoursPerDay && merged.contractedHoursPerDay > 0 ? merged.contractedHoursPerDay : legacyDailyHours,
     flexiPeriod: merged.flexiPeriod === "quarterly" ? "quarterly" : "monthly",
+    leaveYearStart: normaliseLeaveYearStart(merged.leaveYearStart),
     leave: (merged.leave || []).map(item => ({ ...item, type: item.type === "flexi" ? "flexi" : "annual" })),
   };
 }
@@ -74,11 +83,6 @@ function normaliseEmployerUrl(value: string) {
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null;
     return url.href;
   } catch { return null; }
-}
-
-function financialYearStart(today = new Date()) {
-  const start = new Date(today.getFullYear(), 3, 6);
-  return today < start ? new Date(today.getFullYear() - 1, 3, 6) : start;
 }
 
 function datesInRange(start: string, end: string) {
@@ -232,14 +236,15 @@ export default function Home() {
     return { errors, missing };
   }, [days, store.entries, store.mode]);
   const weekReady = weekGross > 0 && weekChecks.errors.length === 0;
-  const fyStart = financialYearStart(); const fyEnd = addDays(new Date(fyStart.getFullYear() + 1, 3, 6), -1);
+  const today = new Date();
+  const currentLeaveYear = leaveYearBounds(today, store.leaveYearStart);
+  const fyStart = currentLeaveYear.start; const fyEnd = currentLeaveYear.end;
   const fyTotal = Object.entries(store.entries).reduce((sum, [key, entry]) => {
     const date = fromKey(key); return date >= fyStart && date <= fyEnd ? sum + netHours(entry, store.mode) : sum;
   }, 0);
   const selectedBankHolidays = bankHolidays[store.bankHolidayDivision] || [];
   const bankHolidayByDate = new Map(selectedBankHolidays.map(holiday => [holiday.date, holiday]));
   const bankHolidayKeys = new Set(bankHolidayByDate.keys());
-  const today = new Date();
   const currentFlexiPeriod = flexiPeriodBounds(store.flexiPeriod, today);
   const currentFlexiPeriodStartKey = keyOf(currentFlexiPeriod.start);
   const currentFlexiPeriodEndKey = keyOf(currentFlexiPeriod.end);
@@ -254,8 +259,25 @@ export default function Home() {
     periodEnd: currentFlexiPeriod.end,
   });
   const selectedFlexiLabel = store.flexiPeriod === "quarterly" ? `${calendarQuarterLabel(today)} flexi` : `${today.toLocaleDateString("en-GB", { month: "short" })} flexi`;
+  const leaveYearParts = leaveYearBoundaryParts(store.leaveYearStart);
+  const leaveYearDayOptions = Array.from({ length: daysInLeaveYearMonth(leaveYearParts.month) }, (_, index) => index + 1);
+  const updateLeaveYearMonth = (month: number) => setStore(current => {
+    const currentParts = leaveYearBoundaryParts(current.leaveYearStart);
+    const day = Math.min(currentParts.day, daysInLeaveYearMonth(month));
+    return { ...current, leaveYearStart: `${pad(month)}-${pad(day)}` };
+  });
+  const updateLeaveYearDay = (day: number) => setStore(current => {
+    const currentParts = leaveYearBoundaryParts(current.leaveYearStart);
+    return { ...current, leaveYearStart: `${pad(currentParts.month)}-${pad(day)}` };
+  });
   const allBookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
-  const annualLeaveWeekdays = new Set(store.leave.filter(item => item.type !== "flexi").flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
+  const annualLeaveWeekdays = new Set(store.leave
+    .filter(item => item.type !== "flexi")
+    .flatMap(item => datesInRange(item.start, item.end))
+    .filter(key => {
+      const date = fromKey(key);
+      return date >= fyStart && date <= fyEnd && ![0, 6].includes(date.getDay()) && !bankHolidayKeys.has(key);
+    }));
   const leaveRemaining = Math.max(0, store.allowance - annualLeaveWeekdays.size);
   const leaveOpportunities = buildLeaveOpportunities(selectedBankHolidays, allBookedWeekdays);
   const savedEmployerUrl = normaliseEmployerUrl(store.employerUrl || "") || "";
@@ -387,7 +409,7 @@ export default function Home() {
         <div><p className="eyebrow">YOUR TIME, YOURS</p><h1>{tab === "leave" ? "Plan the escape." : tab === "history" ? "The bigger picture." : tab === "settings" ? "Set your rhythm." : "Get the week done."}</h1><p className="lede">{tab === "leave" ? "Keep your allowance honest and your next adventure visible." : tab === "settings" ? "Tell Leavebird your working week and we’ll keep your flexi balance in view." : "A calmer way to log the hours — and keep the weekend in sight."}</p></div>
         <div className="hero-stats">
           <div><span>This week</span><strong>{fmt(weekTotal)}</strong></div>
-          <div><span>Financial year</span><strong>{fmt(fyTotal)}</strong></div>
+          <div><span>Leave year</span><strong>{fmt(fyTotal)}</strong></div>
           <FlexiStat label={selectedFlexiLabel} balance={selectedFlexi.balance} configured={flexiConfigured} />
           <div className="sun-stat"><span>Leave left</span><strong>{leaveRemaining}d</strong></div>
         </div>
@@ -445,7 +467,7 @@ export default function Home() {
 
       {tab === "history" && <>
         <section className="history-grid">
-          <div className="panel history-panel"><div className="panel-heading"><div><p className="eyebrow coral">YOUR HISTORY</p><h2>Weeks on record</h2></div><span className="fy-pill">FY {fyStart.getFullYear()}/{String(fyEnd.getFullYear()).slice(-2)}</span></div>
+          <div className="panel history-panel"><div className="panel-heading"><div><p className="eyebrow coral">YOUR HISTORY</p><h2>Weeks on record</h2></div><span className="fy-pill">LY {fyStart.getFullYear()}/{String(fyEnd.getFullYear()).slice(-2)}</span></div>
             {historicalWeeks.length ? <div className="history-list">{historicalWeeks.map(([monday, total]) => { const submission = store.submissions?.[monday]; return <button key={monday} onClick={() => { setWeekStart(fromKey(monday)); setTab("week"); }}><span><b>{fullDate(fromKey(monday))}</b><small>Week ending {shortDate(addDays(fromKey(monday), 6))}</small>{submission && <><small className="submission-date">Submitted {new Date(submission.submittedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small><small className="submission-totals">Gross {fmt(submission.grossHours)} · Breaks {fmtMinutes(submission.breakHours)} · Payable {fmt(submission.netHours)} · {submission.format === "decimal" ? "Decimal" : "HH:MM"}</small></>}<em className={submission ? "submitted" : "draft"}>{submission ? "✓ Submitted" : "Draft"}</em></span><strong>{fmt(total)}</strong><i>→</i></button>; })}</div> : <div className="empty-state"><span>✦</span><h3>Your history starts here</h3><p>Add some hours to this week and they’ll appear here automatically.</p><button onClick={() => setTab("week")}>Log this week</button></div>}
           </div>
           <aside className="panel data-panel"><p className="eyebrow">SYNCED & PRIVATE</p><h3>Your records follow you.</h3><p>Sign in on another browser or device and your timesheets and leave will be waiting. You can still download a personal backup whenever you like.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
@@ -456,9 +478,9 @@ export default function Home() {
       {tab === "settings" && (
         <section className="settings-layout">
           <section className="panel settings-card">
-            <p className="eyebrow coral">FLEXI-TIME SETTINGS</p>
-            <h2>Your contracted week</h2>
-            <p className="settings-intro">Set your weekly target, the hours in a normal working day, and whether your flexi balance resets monthly or quarterly.</p>
+            <p className="eyebrow coral">WORK &amp; LEAVE SETTINGS</p>
+            <h2>Your working year</h2>
+            <p className="settings-intro">Set your weekly target, flexi period and the date when a fresh annual-leave allowance begins.</p>
             <div className="settings-fields">
               <div className="settings-field">
                 <label htmlFor="contracted-hours">Contracted hours per week</label>
@@ -475,6 +497,19 @@ export default function Home() {
                 </div>
               </div>
             </div>
+            <fieldset className="settings-leave-year">
+              <legend>Leave year starts</legend>
+              <div className="leave-year-controls">
+                <label htmlFor="leave-year-month">Month<select id="leave-year-month" value={leaveYearParts.month} onChange={event => updateLeaveYearMonth(Number(event.target.value))}>{Array.from({ length: 12 }, (_, index) => index + 1).map(month => <option key={month} value={month}>{new Date(2000, month - 1, 1).toLocaleDateString("en-GB", { month: "long" })}</option>)}</select></label>
+                <label htmlFor="leave-year-day">Day<select id="leave-year-day" value={leaveYearParts.day} onChange={event => updateLeaveYearDay(Number(event.target.value))}>{leaveYearDayOptions.map(day => <option key={day} value={day}>{day}</option>)}</select></label>
+              </div>
+              <div className="leave-year-summary">
+                <span>Current leave year</span>
+                <strong>{fullDate(fyStart)} — {fullDate(fyEnd)}</strong>
+                <small>{store.leaveYearStart ? `Your allowance refreshes on ${formatLeaveYearStart(store.leaveYearStart)}.` : `Using Leavebird’s default of ${formatLeaveYearStart(DEFAULT_LEAVE_YEAR_START)}.`}</small>
+                {store.leaveYearStart && <button type="button" onClick={() => setStore(current => ({ ...current, leaveYearStart: null }))}>Use default · 6 April</button>}
+              </div>
+            </fieldset>
             <fieldset className="settings-period">
               <legend>Flexi period</legend>
               <div className="segmented"><button type="button" className={store.flexiPeriod === "monthly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "monthly" }))}>Monthly</button><button type="button" className={store.flexiPeriod === "quarterly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "quarterly" }))}>Quarterly</button></div>
@@ -513,7 +548,7 @@ export default function Home() {
             <section className="panel allowance-card" aria-labelledby="annual-allowance-heading">
               <div className="allowance-top"><span aria-hidden="true">☀</span><div className="allowance-content">
                 <div className="allowance-heading"><div><p className="eyebrow">LEAVE YEAR</p><h3 id="annual-allowance-heading">Annual leave allowance</h3></div>{!allowanceEditing && <button type="button" className="allowance-edit" onClick={editAllowance}><span aria-hidden="true">✎</span> Edit allowance</button>}</div>
-                <p className="allowance-help" id="annual-allowance-help">The total paid annual leave available to you this leave year.</p>
+                <p className="allowance-help" id="annual-allowance-help">The total paid annual leave available to you this leave year.</p><p className="allowance-period">{fullDate(fyStart)} — {fullDate(fyEnd)}</p>
                 {allowanceEditing ? <form className="allowance-form" onSubmit={saveAllowance} noValidate>
                   <label htmlFor="annual-allowance"><span>Allowance in days</span><span className="allowance-input"><input id="annual-allowance" type="number" min="0" max="366" step="0.5" inputMode="decimal" value={allowanceDraft} aria-describedby={`annual-allowance-help${allowanceError ? " annual-allowance-error" : ""}`} aria-invalid={Boolean(allowanceError)} onChange={event => { setAllowanceDraft(event.target.value); setAllowanceError(""); }} autoFocus /><small>days</small></span></label>
                   {allowanceError && <p className="allowance-error" id="annual-allowance-error" role="alert">{allowanceError}</p>}
