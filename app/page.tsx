@@ -19,6 +19,7 @@ import {
   leaveYearBounds,
   normaliseLeaveYearStart,
 } from "@/lib/leave-year";
+import { countBookedLeaveDays } from "@/lib/time-off-summary";
 
 type Mode = "clock" | "hours";
 type HoursFormat = "decimal" | "hhmm";
@@ -271,14 +272,12 @@ export default function Home() {
     return { ...current, leaveYearStart: `${pad(currentParts.month)}-${pad(day)}` };
   });
   const allBookedWeekdays = new Set(store.leave.flatMap(item => datesInRange(item.start, item.end)).filter(key => ![0, 6].includes(fromKey(key).getDay()) && !bankHolidayKeys.has(key)));
-  const annualLeaveWeekdays = new Set(store.leave
-    .filter(item => item.type !== "flexi")
-    .flatMap(item => datesInRange(item.start, item.end))
-    .filter(key => {
-      const date = fromKey(key);
-      return date >= fyStart && date <= fyEnd && ![0, 6].includes(date.getDay()) && !bankHolidayKeys.has(key);
-    }));
-  const leaveRemaining = Math.max(0, store.allowance - annualLeaveWeekdays.size);
+  const fyStartKey = keyOf(fyStart); const fyEndKey = keyOf(fyEnd);
+  const annualLeaveTaken = countBookedLeaveDays({ leave: store.leave, type: "annual", startKey: fyStartKey, endKey: fyEndKey, bankHolidayDates: bankHolidayKeys });
+  const flexiTakenThisPeriod = countBookedLeaveDays({ leave: store.leave, type: "flexi", startKey: currentFlexiPeriodStartKey, endKey: currentFlexiPeriodEndKey, bankHolidayDates: bankHolidayKeys });
+  const calendarYearStartKey = `${today.getFullYear()}-01-01`; const calendarYearEndKey = `${today.getFullYear()}-12-31`;
+  const flexiTakenThisYear = countBookedLeaveDays({ leave: store.leave, type: "flexi", startKey: calendarYearStartKey, endKey: calendarYearEndKey, bankHolidayDates: bankHolidayKeys });
+  const leaveRemaining = Math.max(0, store.allowance - annualLeaveTaken);
   const leaveOpportunities = buildLeaveOpportunities(selectedBankHolidays, allBookedWeekdays);
   const savedEmployerUrl = normaliseEmployerUrl(store.employerUrl || "") || "";
 
@@ -510,6 +509,19 @@ export default function Home() {
                 {store.leaveYearStart && <button type="button" onClick={() => setStore(current => ({ ...current, leaveYearStart: null }))}>Use default · 6 April</button>}
               </div>
             </fieldset>
+            <section className="settings-allowance" aria-labelledby="annual-allowance-heading">
+              <div className="settings-allowance-heading">
+                <div><span>Annual leave</span><h3 id="annual-allowance-heading">Allowance in days</h3></div>
+                {!allowanceEditing && <button type="button" className="allowance-edit" onClick={editAllowance}><span aria-hidden="true">✎</span> Edit allowance</button>}
+              </div>
+              <p className="allowance-help" id="annual-allowance-help">Your full paid-leave allowance for {fullDate(fyStart)} — {fullDate(fyEnd)}.</p>
+              {allowanceEditing ? <form className="allowance-form" onSubmit={saveAllowance} noValidate>
+                <label htmlFor="annual-allowance"><span>Allowance in days</span><span className="allowance-input"><input id="annual-allowance" type="number" min="0" max="366" step="0.5" inputMode="decimal" value={allowanceDraft} aria-describedby={`annual-allowance-help${allowanceError ? " annual-allowance-error" : ""}`} aria-invalid={Boolean(allowanceError)} onChange={event => { setAllowanceDraft(event.target.value); setAllowanceError(""); }} autoFocus /><small>days</small></span></label>
+                {allowanceError && <p className="allowance-error" id="annual-allowance-error" role="alert">{allowanceError}</p>}
+                <div className="allowance-actions"><button type="submit">Save allowance</button><button type="button" onClick={cancelAllowanceEdit}>Cancel</button></div>
+              </form> : <div className="settings-allowance-value"><strong>{store.allowance}</strong><span>days per leave year</span></div>}
+              {allowanceUpdated && <p className="allowance-updated" role="status">Allowance updated.</p>}
+            </section>
             <fieldset className="settings-period">
               <legend>Flexi period</legend>
               <div className="segmented"><button type="button" className={store.flexiPeriod === "monthly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "monthly" }))}>Monthly</button><button type="button" className={store.flexiPeriod === "quarterly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "quarterly" }))}>Quarterly</button></div>
@@ -545,18 +557,15 @@ export default function Home() {
           </div>
           <aside className="leave-sidebar">
             <section className="panel holiday-settings"><p className="eyebrow teal">BANK HOLIDAYS</p><label htmlFor="bank-holiday-division">Your UK nation<select id="bank-holiday-division" value={store.bankHolidayDivision} onChange={event => setStore(current => ({ ...current, bankHolidayDivision: event.target.value as BankHolidayDivision }))}><option value="england-and-wales">England &amp; Wales</option><option value="scotland">Scotland</option><option value="northern-ireland">Northern Ireland</option></select></label><p>{bankHolidayStatus === "loading" ? "Loading official dates…" : bankHolidayStatus === "error" ? "Official dates are temporarily unavailable. Allowance totals will update when they return." : `${selectedBankHolidays.filter(holiday => holiday.date.slice(0, 4) === String(calendarMonth.getFullYear())).length} official dates loaded for ${calendarMonth.getFullYear()}.`}</p><a href="https://www.gov.uk/bank-holidays" target="_blank" rel="noopener noreferrer">Dates from GOV.UK ↗</a></section>
-            <section className="panel allowance-card" aria-labelledby="annual-allowance-heading">
-              <div className="allowance-top"><span aria-hidden="true">☀</span><div className="allowance-content">
-                <div className="allowance-heading"><div><p className="eyebrow">LEAVE YEAR</p><h3 id="annual-allowance-heading">Annual leave allowance</h3></div>{!allowanceEditing && <button type="button" className="allowance-edit" onClick={editAllowance}><span aria-hidden="true">✎</span> Edit allowance</button>}</div>
-                <p className="allowance-help" id="annual-allowance-help">The total paid annual leave available to you this leave year.</p><p className="allowance-period">{fullDate(fyStart)} — {fullDate(fyEnd)}</p>
-                {allowanceEditing ? <form className="allowance-form" onSubmit={saveAllowance} noValidate>
-                  <label htmlFor="annual-allowance"><span>Allowance in days</span><span className="allowance-input"><input id="annual-allowance" type="number" min="0" max="366" step="0.5" inputMode="decimal" value={allowanceDraft} aria-describedby={`annual-allowance-help${allowanceError ? " annual-allowance-error" : ""}`} aria-invalid={Boolean(allowanceError)} onChange={event => { setAllowanceDraft(event.target.value); setAllowanceError(""); }} autoFocus /><small>days</small></span></label>
-                  {allowanceError && <p className="allowance-error" id="annual-allowance-error" role="alert">{allowanceError}</p>}
-                  <div className="allowance-actions"><button type="submit">Save allowance</button><button type="button" onClick={cancelAllowanceEdit}>Cancel</button></div>
-                </form> : <div className="allowance-display"><strong>{store.allowance}</strong><span>days per year</span></div>}
-                {allowanceUpdated && <p className="allowance-updated" role="status">Allowance updated.</p>}
-              </div></div>
-              <div className="allowance-track" aria-hidden="true"><i style={{ width: `${Math.min(100, (annualLeaveWeekdays.size / Math.max(1, store.allowance)) * 100)}%` }} /></div><div className="allowance-numbers"><span><b>{annualLeaveWeekdays.size}</b> booked</span><span><b>{leaveRemaining}</b> remaining</span></div>
+            <section className="panel time-off-summary" aria-labelledby="time-off-summary-heading">
+              <div className="time-off-summary-heading"><span aria-hidden="true">☀</span><div><p className="eyebrow">YOUR TIME OFF</p><h3 id="time-off-summary-heading">Time off at a glance</h3></div></div>
+              <div className="time-off-summary-grid">
+                <article className="remaining"><span>Annual remaining</span><strong>{leaveRemaining}<small>d</small></strong><p>of {store.allowance} days</p></article>
+                <article><span>Annual booked</span><strong>{annualLeaveTaken}<small>d</small></strong><p>this leave year</p></article>
+                <article className="flexi"><span>Flexi this period</span><strong>{flexiTakenThisPeriod}<small>d</small></strong><p>this {store.flexiPeriod === "quarterly" ? "quarter" : "month"}</p></article>
+                <article className="flexi"><span>Flexi this year</span><strong>{flexiTakenThisYear}<small>d</small></strong><p>{today.getFullYear()} calendar year</p></article>
+              </div>
+              <div className="time-off-summary-foot"><span>Leave year</span><strong>{shortDate(fyStart)} — {shortDate(fyEnd)}</strong></div>
             </section>
 
             <section className="panel book-card"><p className="eyebrow coral">BOOK TIME OFF</p><div className="leave-type-choice segmented" role="group" aria-label="Leave type"><button type="button" className={leaveDraft.type === "annual" ? "selected" : ""} onClick={() => { setLeaveDraft(d => ({ ...d, type: "annual", label: d.label === "Flexi leave" ? "Annual leave" : d.label })); setLeaveDraftError(""); }}>Annual leave</button><button type="button" className={leaveDraft.type === "flexi" ? "selected" : ""} onClick={() => { const valid = isRangeWithinFlexiPeriod(leaveDraft.start, leaveDraft.end, store.flexiPeriod, today); setLeaveDraft(d => ({ ...d, type: "flexi", start: valid ? d.start : keyOf(today), end: valid ? d.end : keyOf(today), label: d.label === "Annual leave" ? "Flexi leave" : d.label })); setLeaveDraftError(""); }}>Flexi leave</button></div><label>From<input type="date" min={leaveDraft.type === "flexi" ? currentFlexiPeriodStartKey : undefined} max={leaveDraft.type === "flexi" ? currentFlexiPeriodEndKey : undefined} value={leaveDraft.start} onChange={e => { setLeaveDraft(d => ({ ...d, start: e.target.value, end: e.target.value > d.end ? e.target.value : d.end })); setLeaveDraftError(""); }} /></label><label>To<input type="date" min={leaveDraft.start} max={leaveDraft.type === "flexi" ? currentFlexiPeriodEndKey : undefined} value={leaveDraft.end} onChange={e => { setLeaveDraft(d => ({ ...d, end: e.target.value })); setLeaveDraftError(""); }} /></label>{leaveDraft.type === "flexi" && <p className="flexi-booking-note">Book within {fullDate(currentFlexiPeriod.start)} — {fullDate(currentFlexiPeriod.end)}. Each weekday uses {store.contractedHoursPerDay ? fmt(store.contractedHoursPerDay) : "your daily hours"}.</p>}<label>What’s the plan?<input value={leaveDraft.label} onChange={e => setLeaveDraft(d => ({ ...d, label: e.target.value }))} /></label>{leaveDraftError && <p className="booking-error" role="alert">{leaveDraftError}</p>}<button onClick={addLeave}>Add to calendar ↗</button></section>
