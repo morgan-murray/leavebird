@@ -1,6 +1,10 @@
 import { currentUser } from "@/lib/auth";
+import { measuredRoute, recordUserActivity } from "@/lib/metrics";
 
 export async function GET() {
-  const user = await currentUser();
-  return Response.json({ user });
+  return measuredRoute("page", async () => {
+    const user = await currentUser();
+    if (user) recordUserActivity(user.id, "authenticated-visit");
+    return Response.json({ user });
+  });
 }
