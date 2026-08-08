@@ -13,6 +13,25 @@ In production, serve the app over HTTPS so the secure session cookie is protecte
 
 For the included container deployment, set `POSTGRES_PASSWORD` and `SITE_HOST` in `.env`, then run `docker compose up -d --build`. Postgres is kept on the private Docker network; Caddy publishes ports 80 and 443 and manages HTTPS automatically.
 
+## Google sign-in
+
+OAuth sign-in is optional: email and password continue to work when provider
+credentials are absent. Copy the OAuth values from `.env.example` into the
+deployment environment and generate `OAUTH_STATE_SECRET` from at least 32
+random bytes. Never expose these values to browser code or commit them.
+
+Production callback: `https://leavebird.com/api/auth/oauth/google/callback`
+
+For Google, create a Web application OAuth client and set
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Add the production callback
+as an authorised redirect URI. A localhost callback may be added separately for
+development.
+
+
+OAuth identities are stored separately from users. When a provider supplies the
+same verified email as an existing Leavebird account, the identity is linked to
+that user so their existing timesheets remain attached.
+
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
 Drizzle support.
