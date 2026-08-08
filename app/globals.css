@@ -133,3 +133,38 @@ footer { padding:30px max(24px,calc((100vw - 1280px)/2)); background:#e6e1d5; di
   .leave-year-controls { grid-template-columns:1fr; width:100%; }
   .leave-year-controls select { min-height:44px; }
 }
+
+.settings-allowance { margin:24px 0 0; padding:24px 0 0; border-top:1px solid var(--line); }
+.settings-allowance-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.settings-allowance-heading span { display:block; color:var(--coral); font-size:9px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+.settings-allowance-heading h3 { margin-top:3px; font-size:18px; }
+.settings-allowance .allowance-help { margin:8px 0 0; color:var(--muted); font-size:10px; line-height:1.45; }
+.settings-allowance-value { display:flex; align-items:baseline; gap:8px; margin-top:11px; }
+.settings-allowance-value strong { font:800 30px "Manrope"; }
+.settings-allowance-value span { color:var(--muted); font-size:10px; font-weight:700; }
+.settings-allowance .allowance-form { width:min(100%,360px); }
+.settings-allowance .allowance-form>label { display:block; }
+.settings-allowance .allowance-error { margin:7px 0 0; color:#8d321d; font-size:10px; font-weight:800; line-height:1.35; }
+.settings-allowance .allowance-updated { margin:8px 0 0; color:var(--teal); font-size:10px; font-weight:800; }
+
+.time-off-summary { padding:24px; background:var(--yellow); border-color:#edba31; }
+.leave-sidebar>.panel { width:100%; margin-left:0; margin-right:0; }
+.time-off-summary-heading { display:flex; align-items:center; gap:12px; }
+.time-off-summary-heading>span { font-size:34px; line-height:1; }
+.time-off-summary-heading .eyebrow { margin:0 0 2px; font-size:8px; }
+.time-off-summary-heading h3 { font-size:18px; }
+.time-off-summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:18px; }
+.time-off-summary-grid article { min-width:0; padding:12px; border:1px solid rgba(23,51,45,.14); border-radius:10px; background:rgba(255,255,255,.46); }
+.time-off-summary-grid article>span { display:block; min-height:24px; color:#52615d; font-size:8px; font-weight:800; line-height:1.35; text-transform:uppercase; }
+.time-off-summary-grid article>strong { display:block; margin:2px 0; color:var(--ink); font:800 25px "Manrope"; }
+.time-off-summary-grid article>strong small { margin-left:2px; font-size:12px; }
+.time-off-summary-grid article>p { margin:0; color:#52615d; font-size:8px; }
+.time-off-summary-grid article.flexi { background:#f1ebff; border-color:#bca8e8; }
+.time-off-summary-grid article.flexi>strong { color:#604393; }
+.time-off-summary-foot { display:flex; justify-content:space-between; gap:10px; margin-top:14px; padding-top:11px; border-top:1px solid rgba(23,51,45,.18); color:#52615d; font-size:8px; }
+.time-off-summary-foot strong { color:var(--ink); }
+
+@media(max-width:640px) {
+  .settings-allowance-heading { align-items:stretch; flex-direction:column; }
+  .settings-allowance .allowance-edit { width:100%; min-height:44px; }
+}
