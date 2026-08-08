@@ -116,3 +116,20 @@ footer { padding:30px max(24px,calc((100vw - 1280px)/2)); background:#e6e1d5; di
   .allowance-heading { align-items:stretch; flex-direction:column; }
   .allowance-edit { width:100%; min-height:44px; }
 }
+
+.settings-leave-year { margin:24px 0 0; padding:24px 0 0; border:0; border-top:1px solid var(--line); }
+.settings-leave-year legend { margin-bottom:11px; color:var(--ink); font-size:11px; font-weight:800; }
+.leave-year-controls { display:grid; grid-template-columns:minmax(0,2fr) minmax(100px,1fr); gap:12px; width:min(100%,360px); }
+.leave-year-controls label { display:grid; gap:7px; color:var(--muted); font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+.leave-year-controls select { width:100%; min-height:48px; border:1px solid var(--line); border-radius:11px; padding:0 38px 0 13px; background:white; color:var(--ink); font:700 14px "Manrope"; }
+.leave-year-controls select:focus { border-color:var(--teal); outline:3px solid rgba(45,135,120,.12); }
+.leave-year-summary { margin-top:13px; padding:14px 16px; border-radius:11px; background:var(--mint); }
+.leave-year-summary span,.leave-year-summary small { display:block; color:var(--muted); font-size:9px; }
+.leave-year-summary strong { display:block; margin:3px 0; font-size:13px; }
+.leave-year-summary button { margin:10px 0 0; border:0; padding:0; background:none; color:var(--teal); cursor:pointer; font:800 10px "Manrope"; text-decoration:underline; text-underline-offset:3px; }
+.allowance-top .allowance-period { margin:4px 0 0; color:#52615d; font-size:9px; font-weight:800; }
+
+@media(max-width:640px) {
+  .leave-year-controls { grid-template-columns:1fr; width:100%; }
+  .leave-year-controls select { min-height:44px; }
+}
