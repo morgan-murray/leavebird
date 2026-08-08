@@ -32,6 +32,55 @@ OAuth identities are stored separately from users. When a provider supplies the
 same verified email as an existing Leavebird account, the identity is linked to
 that user so their existing timesheets remain attached.
 
+## Owner health dashboard
+
+`/admin` is a private operational dashboard. It is deliberately absent from normal navigation and every page/API request is authorised server-side against one immutable account ID.
+
+### Configure the owner
+
+1. Look up the UUID for the existing `morgan@ablench.com` account from the `users` table on the server.
+2. Set that UUID as `ADMIN_USER_ID` in the deployment environment. Never commit the UUID or use an email address as the runtime access check.
+3. Rebuild/restart the app. A missing, malformed or non-matching value denies everybody.
+
+The page and `/api/admin/metrics` return a generic not-found response to signed-out and ordinary users. Admin responses are marked private/no-store and no-index.
+
+### What is collected
+
+The app keeps privacy-preserving operational data for 90 days:
+
+- route group, response status and duration;
+- daily authenticated activity keyed by internal user ID for aggregate DAU/WAU/MAU counts;
+- successful/failed authentication, admin-access and bank-holiday outcomes.
+
+It does not collect raw URLs, query values, IP addresses, passwords, tokens, timesheet notes, leave descriptions or Daily Chirp viewing history. Metrics writes are best-effort: failures are swallowed so they cannot prevent login or timesheet saving. Cleanup runs opportunistically at most once per day.
+
+### Backup status
+
+Set `LAST_BACKUP_AT` to the latest successful backup time in ISO-8601 format and refresh it from the backup job. `BACKUP_MAX_AGE_HOURS` defaults to 36. If no timestamp is supplied, the dashboard prominently reports that backup monitoring is unknown rather than implying a backup exists.
+
+### Metric definitions
+
+- **Entry:** a calendar day with recorded working hours or start/finish values.
+- **Recorded week:** a Monday-to-Sunday week containing at least one entry.
+- **Submitted week:** a week explicitly marked ready for employer submission.
+- **Active user:** an account with an authenticated visit or data update in the selected period.
+
+Averages and medians for recorded weeks are labelled as excluding users who have never recorded a week.
+
+### Operations and recovery
+
+The dashboard reports application/PostgreSQL/public-endpoint health, pool usage, query failures, request latency/error rates, storage size, the latest migration and bank-holiday availability.
+
+If the dashboard is unavailable while Leavebird is otherwise healthy:
+
+1. Confirm `ADMIN_USER_ID` contains the owner account UUID, not an email.
+2. Confirm migration `003_admin_metrics.sql` appears in `schema_migrations`.
+3. Check that PostgreSQL can read the three metrics tables.
+4. Remove or correct an invalid backup timestamp rather than fabricating freshness.
+5. Core timesheet use can continue while metrics are repaired; do not weaken the admin check as a workaround.
+
+To revoke admin access immediately, remove `ADMIN_USER_ID` and restart the app. To recover access after an account replacement, verify the intended owner out of band and pin the new immutable UUID.
+
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
 Drizzle support.

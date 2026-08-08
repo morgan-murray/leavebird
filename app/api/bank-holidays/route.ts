@@ -1,9 +1,12 @@
+import { measuredRoute, recordOperationalEvent } from "@/lib/metrics";
+
 type GovEvent = { title?: unknown; date?: unknown };
 type GovDivision = { events?: unknown };
 
 const divisions = ["england-and-wales", "scotland", "northern-ireland"] as const;
 
 export async function GET() {
+  return measuredRoute("bank-holidays", async () => {
   try {
     const response = await fetch("https://www.gov.uk/bank-holidays.json", {
       headers: { Accept: "application/json" },
@@ -16,8 +19,11 @@ export async function GET() {
       const events = rawEvents.flatMap(event => typeof event.title === "string" && typeof event.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(event.date) ? [{ title: event.title, date: event.date }] : []);
       return [division, events];
     }));
+    recordOperationalEvent("bank-holiday-fetch", true);
     return Response.json({ divisions: result, source: "GOV.UK" }, { headers: { "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400" } });
   } catch {
+    recordOperationalEvent("bank-holiday-fetch", false);
     return Response.json({ error: "Bank holiday dates are temporarily unavailable." }, { status: 502 });
   }
+  });
 }
