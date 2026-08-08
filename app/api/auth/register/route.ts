@@ -1,4 +1,5 @@
 import { createSession, hashPassword } from "@/lib/auth";
+import { isConfiguredAdmin } from "@/lib/admin-core.js";
 import { query } from "@/lib/db";
 import { measuredRoute, recordOperationalEvent } from "@/lib/metrics";
 
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
       const user = result.rows[0];
       await createSession(user.id);
       recordOperationalEvent("registration", true);
-      return Response.json({ user }, { status: 201 });
+      return Response.json({ user: { ...user, isAdmin: isConfiguredAdmin(user.id, process.env.ADMIN_USER_ID) } }, { status: 201 });
     } catch (error: unknown) {
       if (typeof error === "object" && error && "code" in error && error.code === "23505") {
         recordOperationalEvent("registration", false);

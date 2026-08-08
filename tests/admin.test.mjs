@@ -80,8 +80,10 @@ test("timesheet aggregation has a stable empty-data state", () => {
 });
 
 test("the page, API and response headers all enforce the admin boundary", async () => {
-  const [page, api, auth, config, migration, metrics] = await Promise.all([
+  const [page, appPage, me, api, auth, config, migration, metrics] = await Promise.all([
     readFile(new URL("../app/admin/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/me/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/admin/metrics/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/admin-auth.ts", import.meta.url), "utf8"),
     readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
@@ -90,6 +92,8 @@ test("the page, API and response headers all enforce the admin boundary", async 
   ]);
   assert.match(page, /currentAdmin\(\)/);
   assert.match(page, /notFound\(\)/);
+  assert.match(appPage, /user\.isAdmin && <div className="admin-dashboard-shortcut">/);
+  assert.match(me, /isConfiguredAdmin\(account\.id, process\.env\.ADMIN_USER_ID\)/);
   assert.match(api, /requireAdminApi\(\)/);
   assert.match(auth, /process\.env\.ADMIN_USER_ID/);
   assert.match(config, /Cache-Control.*no-store/s);

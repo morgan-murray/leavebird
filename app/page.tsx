@@ -25,7 +25,7 @@ type Leave = { id: string; start: string; end: string; label: string; type: Leav
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
 type OAuthAvailability = { google: boolean };
 type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null; contractedHoursPerDay: number | null; flexiPeriod: FlexiPeriod };
-type User = { id: string; email: string };
+type User = { id: string; email: string; isAdmin: boolean };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
@@ -480,6 +480,14 @@ export default function Home() {
               <div className="segmented"><button type="button" className={store.flexiPeriod === "monthly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "monthly" }))}>Monthly</button><button type="button" className={store.flexiPeriod === "quarterly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "quarterly" }))}>Quarterly</button></div>
             </fieldset>
             <p id="contracted-hours-help" className="settings-help">Daily hours are used when you book flexi leave. Everything is saved securely to your account.</p>
+            {user.isAdmin && <div className="admin-dashboard-shortcut">
+              <div>
+                <span>OWNER TOOLS</span>
+                <strong>Leavebird health dashboard</strong>
+                <small>See growth, engagement, performance and service health. This shortcut is visible only to your owner account.</small>
+              </div>
+              <a href="/admin">Open dashboard <span aria-hidden="true">↗</span></a>
+            </div>}
           </section>
           <aside className="panel flexi-explainer">
             <p className="eyebrow teal">HOW IT WORKS</p>

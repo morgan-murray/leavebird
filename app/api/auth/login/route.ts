@@ -1,4 +1,5 @@
 import { createSession, verifyPassword } from "@/lib/auth";
+import { isConfiguredAdmin } from "@/lib/admin-core.js";
 import { query } from "@/lib/db";
 import { measuredRoute, recordOperationalEvent } from "@/lib/metrics";
 
@@ -17,6 +18,6 @@ export async function POST(request: Request) {
     }
     await createSession(found.id);
     recordOperationalEvent("login", true);
-    return Response.json({ user: { id: found.id, email: found.email } });
+    return Response.json({ user: { id: found.id, email: found.email, isAdmin: isConfiguredAdmin(found.id, process.env.ADMIN_USER_ID) } });
   });
 }
