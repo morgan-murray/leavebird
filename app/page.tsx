@@ -20,6 +20,7 @@ import {
   normaliseLeaveYearStart,
 } from "@/lib/leave-year";
 import { countBookedLeaveDays } from "@/lib/time-off-summary";
+import { buildTimesheetCsv } from "@/lib/timesheet-export";
 
 type Mode = "clock" | "hours";
 type HoursFormat = "decimal" | "hhmm";
@@ -71,7 +72,6 @@ const formattedHours = (value: number, format: HoursFormat) => {
   if (format === "decimal") return Number(value.toFixed(2)).toString();
   const minutes = Math.round(value * 60); return `${Math.floor(minutes / 60)}:${pad(minutes % 60)}`;
 };
-const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 const fullDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
@@ -344,7 +344,7 @@ export default function Home() {
   const downloadCsv = () => {
     const heading = ["Date", "Day", "Start", "Finish", "Gross", "Break", "Payable", "Note"];
     const rows = weekRows().map(row => [row.date, row.day, row.entry.start, row.entry.end, formattedHours(row.gross, store.hoursFormat), formattedHours(row.breaks, store.hoursFormat), formattedHours(row.payable, store.hoursFormat), row.entry.note]);
-    const blob = new Blob([[heading, ...rows].map(row => row.map(csvCell).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([buildTimesheetCsv(heading, rows)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `leavebird-week-${currentWeekKey}.csv`; a.click(); URL.revokeObjectURL(url);
   };
   const downloadPdf = async () => {
@@ -434,7 +434,7 @@ export default function Home() {
               <strong className="row-total">{fmt(netHours(entry, store.mode))}</strong>
             </div>; })}
           </div>
-          <div className="sheet-total"><span>Week total</span><strong>{fmt(weekTotal)}</strong></div>
+          <div className="sheet-total"><div><span>Week total</span><strong>{fmt(weekTotal)}</strong></div><button type="button" className="sheet-export-shortcut" onClick={downloadCsv} disabled={weekGross === 0}><span aria-hidden="true">↓</span><span><b>Download spreadsheet</b><small>.CSV · Excel, Google Sheets &amp; Numbers</small></span></button></div>
         </section>
         {chirpVisible && <section className="panel daily-chirp" aria-labelledby="daily-chirp-title" aria-live="polite">
           <div className="daily-chirp-art"><Image src={dailyChirp.image} alt={dailyChirp.alt} width={768} height={768} sizes="(max-width: 640px) calc(100vw - 24px), (max-width: 900px) 280px, 330px" /></div>
@@ -450,15 +450,20 @@ export default function Home() {
           <div className="completion-copy">
             <p className="eyebrow coral">{currentSubmission ? "SUBMITTED" : "READY TO HAND OVER"}</p>
             <h2>{currentSubmission ? "This week is marked as submitted." : weekReady ? "Your week is ready to submit." : "A quick check before you submit."}</h2>
-            <p>{currentSubmission ? `Submitted ${new Date(currentSubmission.submittedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}. Reopen it if you need to make a correction.` : "Review the totals, choose your employer's preferred format, then copy or download the week."}</p>
+            <p>{currentSubmission ? `Submitted ${new Date(currentSubmission.submittedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}. Reopen it if you need to make a correction.` : "Review the totals, choose your employer's preferred hours format, then export the week."}</p>
             {!currentSubmission && weekChecks.errors.length > 0 && <ul className="check-list errors">{weekChecks.errors.map(error => <li key={error}>! {error}</li>)}</ul>}
             {!currentSubmission && weekChecks.missing.length > 0 && <p className="missing-note">Review: no hours recorded for {weekChecks.missing.join(", ")}.</p>}
           </div>
           <div className="completion-tools">
             <div className="total-strip"><div><span>Gross hours</span><strong>{fmt(weekGross)}</strong></div><div><span>Breaks</span><strong>{fmtMinutes(weekBreaks)}</strong></div><div><span>Payable</span><strong>{fmt(weekTotal)}</strong></div></div>
             <div className="format-choice"><span>Employer format</span><div className="segmented" role="group" aria-label="Employer hours format"><button className={store.hoursFormat === "decimal" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "decimal" }))}>Decimal</button><button className={store.hoursFormat === "hhmm" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, hoursFormat: "hhmm" }))}>HH:MM</button></div></div>
+            <section className="timesheet-export" aria-labelledby="timesheet-export-heading">
+              <div className="timesheet-export-heading"><div><span>EXPORT THIS WEEK</span><h3 id="timesheet-export-heading">Choose a file for your employer</h3></div><b>RECOMMENDED</b></div>
+              <button type="button" className="csv-export-primary" onClick={downloadCsv} disabled={weekGross === 0}><span className="export-file-badge">CSV</span><span><strong>Download spreadsheet (.CSV)</strong><small>Opens in Excel, Google Sheets and Numbers</small></span><i aria-hidden="true">↓</i></button>
+              <div className="secondary-exports"><button type="button" onClick={downloadPdf} disabled={weekGross === 0}><span>PDF</span><b>Download printable PDF</b></button><button type="button" onClick={copyWeek} disabled={weekGross === 0}><span>⌘</span><b>{copyStatus === "copied" ? "Copied timesheet rows ✓" : copyStatus === "error" ? "Copy failed — try again" : "Copy timesheet rows"}</b></button></div>
+            </section>
             <div className="employer-shortcut"><div><span>Employer timesheet</span><small>Save the web address only — Leavebird never stores your employer login details.</small></div><div className="employer-url-controls"><input type="text" inputMode="url" aria-label="Employer timesheet web address" value={employerUrlDraft} placeholder="timesheets.your-employer.com" onChange={event => { setEmployerUrlDraft(event.target.value); setEmployerUrlError(""); }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); saveEmployerUrl(); } }} /><button type="button" onClick={saveEmployerUrl}>{savedEmployerUrl ? "Update link" : "Save link"}</button>{savedEmployerUrl && <button type="button" className="remove" onClick={removeEmployerUrl}>Remove</button>}</div>{employerUrlError && <p role="alert">{employerUrlError}</p>}</div>
-            <div className="completion-actions"><button className="secondary" onClick={copyWeek} disabled={weekGross === 0}>{copyStatus === "copied" ? "✓ Copied" : copyStatus === "error" ? "Copy failed" : "Copy hours"}</button><button className="secondary" onClick={downloadCsv} disabled={weekGross === 0}>Download CSV</button><button className="secondary" onClick={downloadPdf} disabled={weekGross === 0}>Download PDF</button>{savedEmployerUrl && <a className="employer-open" href={savedEmployerUrl} target="_blank" rel="noopener noreferrer">Open employer timesheet ↗</a>}{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
+            <div className="completion-actions">{savedEmployerUrl && <a className="employer-open" href={savedEmployerUrl} target="_blank" rel="noopener noreferrer">Open employer timesheet ↗</a>}{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
           </div>
         </section>
         <WeekendReward unlocked={Boolean(currentSubmission)} />
@@ -469,7 +474,7 @@ export default function Home() {
           <div className="panel history-panel"><div className="panel-heading"><div><p className="eyebrow coral">YOUR HISTORY</p><h2>Weeks on record</h2></div><span className="fy-pill">LY {fyStart.getFullYear()}/{String(fyEnd.getFullYear()).slice(-2)}</span></div>
             {historicalWeeks.length ? <div className="history-list">{historicalWeeks.map(([monday, total]) => { const submission = store.submissions?.[monday]; return <button key={monday} onClick={() => { setWeekStart(fromKey(monday)); setTab("week"); }}><span><b>{fullDate(fromKey(monday))}</b><small>Week ending {shortDate(addDays(fromKey(monday), 6))}</small>{submission && <><small className="submission-date">Submitted {new Date(submission.submittedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small><small className="submission-totals">Gross {fmt(submission.grossHours)} · Breaks {fmtMinutes(submission.breakHours)} · Payable {fmt(submission.netHours)} · {submission.format === "decimal" ? "Decimal" : "HH:MM"}</small></>}<em className={submission ? "submitted" : "draft"}>{submission ? "✓ Submitted" : "Draft"}</em></span><strong>{fmt(total)}</strong><i>→</i></button>; })}</div> : <div className="empty-state"><span>✦</span><h3>Your history starts here</h3><p>Add some hours to this week and they’ll appear here automatically.</p><button onClick={() => setTab("week")}>Log this week</button></div>}
           </div>
-          <aside className="panel data-panel"><p className="eyebrow">SYNCED & PRIVATE</p><h3>Your records follow you.</h3><p>Sign in on another browser or device and your timesheets and leave will be waiting. You can still download a personal backup whenever you like.</p><button onClick={exportData}>↓ Export backup</button><button className="secondary" onClick={() => importRef.current?.click()}>↑ Import backup</button><input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} /></aside>
+          <aside className="panel data-panel"><p className="eyebrow">SYNCED &amp; PRIVATE</p><h3>Your records follow you.</h3><p>Select any week from your history to review its hours and open the same spreadsheet and PDF export options used for this week.</p><div className="history-export-cue"><span aria-hidden="true">↗</span><strong>Open a week to export it</strong></div></aside>
         </section>
         <WeekendReward unlocked />
       </>}
@@ -527,6 +532,12 @@ export default function Home() {
               <div className="segmented"><button type="button" className={store.flexiPeriod === "monthly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "monthly" }))}>Monthly</button><button type="button" className={store.flexiPeriod === "quarterly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "quarterly" }))}>Quarterly</button></div>
             </fieldset>
             <p id="contracted-hours-help" className="settings-help">Daily hours are used when you book flexi leave. Everything is saved securely to your account.</p>
+            <section className="settings-backups" aria-labelledby="settings-backups-heading">
+              <div><span>DATA &amp; BACKUPS</span><h3 id="settings-backups-heading">Your Leavebird data</h3></div>
+              <p>JSON is a private Leavebird backup for restoring your records later. It is not a timesheet for your employer.</p>
+              <div><button type="button" onClick={exportData}>↓ Download Leavebird backup (.JSON)</button><button type="button" className="secondary" onClick={() => importRef.current?.click()}>↑ Restore Leavebird backup (.JSON)</button></div>
+              <input ref={importRef} type="file" accept="application/json" hidden onChange={e => importData(e.target.files?.[0])} />
+            </section>
             {user.isAdmin && <div className="admin-dashboard-shortcut">
               <div>
                 <span>OWNER TOOLS</span>
