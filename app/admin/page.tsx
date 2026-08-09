@@ -11,6 +11,7 @@ export const metadata: Metadata = { title: "Leavebird health", robots: { index: 
 
 const whole = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
 const decimal = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 });
+const pounds = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 
 function formatBytes(bytes: number) {
   if (!bytes) return "0 B";
@@ -64,10 +65,17 @@ function HealthRow({ label, status, detail }: { label: string; status: string; d
   </div>;
 }
 
-export default async function AdminPage() {
+export default async function AdminPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const admin = await currentAdmin();
   if (!admin) notFound();
-  const data = await getAdminDashboardData();
+  const params = await searchParams;
+  const one = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+  const requestedDays = Number(one(params.days));
+  const data = await getAdminDashboardData(new Date(), {
+    days: [7, 30, 90, 395].includes(requestedDays) ? requestedDays : 30,
+    placement: one(params.placement) || "",
+    merchant: one(params.merchant) || "",
+  });
   const p95 = data.performance.last24Hours.p95;
 
   return <main className={styles.shell}>
@@ -129,6 +137,32 @@ export default async function AdminPage() {
       </section>
 
       <section className={`${styles.panel} ${styles.spanThree}`}>
+        <div className={styles.panelHead}><div><p className={styles.eyebrow}>Recommendations</p><h2>From useful idea to commission</h2></div><span>Anonymous aggregate reporting</span></div>
+        <form className={styles.filterForm} method="get">
+          <label>Period<select name="days" defaultValue={String(data.affiliate.filter.days)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="395">Last 13 months</option></select></label>
+          <label>Placement<select name="placement" defaultValue={data.affiliate.filter.placement}><option value="">All placements</option>{data.affiliate.availablePlacements.map(value => <option key={value} value={value}>{value.replaceAll("-", " ")}</option>)}</select></label>
+          <label>Merchant<select name="merchant" defaultValue={data.affiliate.filter.merchant}><option value="">All merchants</option>{data.affiliate.availableMerchants.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+          <button type="submit">Apply filters</button>
+        </form>
+        <div className={styles.affiliateStats}>
+          <Stat label="Offer views" value={whole.format(data.affiliate.impressions)} detail="50% visible for 750ms" />
+          <Stat label="Outbound clicks" value={whole.format(data.affiliate.clicks)} detail={`${decimal.format(data.affiliate.clickThroughRate)}% click-through rate`} />
+          <Stat label="Conversions" value={whole.format(data.affiliate.conversions)} detail={`${decimal.format(data.affiliate.conversionRate)}% of clicks`} />
+          <Stat label="Commission" value={pounds.format(data.affiliate.commissionMinor / 100)} detail={`${pounds.format(data.affiliate.earningsPerClickMinor / 100)} per click`} />
+        </div>
+        {data.affiliate.breakdown.length ? <div className={styles.tableWrap}><table>
+          <thead><tr><th>Placement</th><th>Merchant</th><th>Views</th><th>Clicks</th><th>CTR</th><th>Conversions</th><th>Conv.</th><th>Commission</th></tr></thead>
+          <tbody>{data.affiliate.breakdown.map(row => <tr key={`${row.placement}-${row.merchant}`}><th>{row.placement.replaceAll("-", " ")}</th><td>{row.merchant}</td><td>{whole.format(row.impressions)}</td><td>{whole.format(row.clicks)}</td><td>{decimal.format(row.clickThroughRate)}%</td><td>{whole.format(row.conversions)}</td><td>{decimal.format(row.conversionRate)}%</td><td>{pounds.format(row.commissionMinor / 100)}</td></tr>)}</tbody>
+        </table></div> : <p className={styles.empty}>Recommendation activity will appear here as people view and open Leavebird picks.</p>}
+        <details className={styles.definitions}><summary>Counting and privacy rules</summary><dl>
+          <div><dt>Offer view</dt><dd>Counted once when at least half of a recommendation link is visible for 750 milliseconds.</dd></div>
+          <div><dt>Outbound click</dt><dd>Counted once for each genuine signed-in redirect. Suspected bots are excluded where practical.</dd></div>
+          <div><dt>Conversion</dt><dd>Deduplicated using a one-way hash of the network reference. Only merchant, placement, offer, currency and commission are retained.</dd></div>
+          <div><dt>Failure behaviour</dt><dd>If reporting fails, the recommendation still opens normally.</dd></div>
+        </dl></details>
+      </section>
+
+      <section className={`${styles.panel} ${styles.spanThree}`}>
         <div className={styles.panelHead}><div><p className={styles.eyebrow}>Performance and reliability</p><h2>Fast where it matters</h2></div><span>p50 · p95 · p99</span></div>
         <LatencyTable windows={[{ label: "Last hour", value: data.performance.lastHour }, { label: "Last 24 hours", value: data.performance.last24Hours }, { label: "Last 7 days", value: data.performance.last7Days }]} />
         <div className={styles.performanceGrid}>
@@ -175,7 +209,7 @@ export default async function AdminPage() {
 
       <section className={`${styles.panel} ${styles.spanThree} ${styles.privacy}`}>
         <div><p className={styles.eyebrow}>Privacy and retention</p><h2>Useful signals, not surveillance</h2><p>{data.privacy.collected}</p></div>
-        <div><strong>Never collected here</strong><p>{data.privacy.excluded}</p><small>Operational metrics are automatically removed after {data.privacy.retentionDays} days. Collection failures never block login or saving.</small></div>
+        <div><strong>Never collected here</strong><p>{data.privacy.excluded}</p><small>Operational metrics are removed after {data.privacy.retentionDays} days; anonymous recommendation reporting after {data.privacy.affiliateRetentionDays} days. Collection failures never block login, saving or opening an offer.</small></div>
       </section>
     </div>
   </main>;

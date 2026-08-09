@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { FcGoogle } from "react-icons/fc";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { TrackedOfferLink } from "@/components/TrackedOfferLink";
 import { dailyChirpDismissalKey, dailyChirpForDate } from "@/lib/daily-chirp";
 import { validateAnnualAllowance } from "@/lib/allowance";
 import {
@@ -677,21 +678,21 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
 function WeekendReward({ unlocked }: { unlocked: boolean }) {
   const offers = [
     {
-      type: "Comedy & brunch", title: "Big Belly Comedy Club", location: "South Bank, London",
+      id: "groupon-big-belly", type: "Comedy & brunch", title: "Big Belly Comedy Club", location: "South Bank, London",
       price: "From £24.95", saving: "Up to 50% off", availability: "Weekend sessions listed", source: "Groupon",
-      url: "https://www.groupon.co.uk/deals/big-belly-comedy-club-1", image: "/deals/comedy.jpg",
+      image: "/deals/comedy.jpg",
       imageAlt: "A comedian performing with a microphone", credit: "Photo: James Cridland · CC BY 2.0",
     },
     {
-      type: "Art & culture", title: "Moco Museum entry", location: "Marble Arch, London",
+      id: "wowcher-moco", type: "Art & culture", title: "Moco Museum entry", location: "Marble Arch, London",
       price: "From £9", saving: "Up to 43% off", availability: "Open Fri–Sat until 7pm", source: "Wowcher",
-      url: "https://www.wowcher.co.uk/deal/london/40974160/moco-museum-entry-ticket", image: "/deals/moco.jpg",
+      image: "/deals/moco.jpg",
       imageAlt: "Inside Moco Museum in London", credit: "Photo: Matt Brown · CC BY 2.0",
     },
     {
-      type: "Sightseeing", title: "Thames sightseeing cruise", location: "Central London piers",
+      id: "wowcher-thames", type: "Sightseeing", title: "Thames sightseeing cruise", location: "Central London piers",
       price: "From £7", saving: "Up to 32% off", availability: "Runs Sat & Sun · every 20–40 min", source: "Wowcher",
-      url: "https://www.wowcher.co.uk/deal/london/activities-entertainment/river-cruises/45329263/thames-river-sightseeing-cruise-tickets", image: "/deals/thames.jpg",
+      image: "/deals/thames.jpg",
       imageAlt: "A City Cruises boat on the River Thames", credit: "Photo: Cnbrb · public domain",
     },
   ];
@@ -707,21 +708,22 @@ function WeekendReward({ unlocked }: { unlocked: boolean }) {
       <div><p className="eyebrow">TIMESHEET DONE</p><h2>Weekend unlocked.</h2><p>You clocked the hours. Here are three ways to spend the good ones.</p></div>
       <span className="reward-stamp" aria-hidden="true">OFF<br />DUTY</span>
     </div>
-    <div className="reward-heading"><div><p className="eyebrow coral">THIS WEEKEND · LONDON</p><h3>Something fun, sorted.</h3></div><span>Prices checked 2 Aug · availability can change · handy links, not sponsored</span></div>
+    <div className="reward-heading"><div><p className="eyebrow coral">THIS WEEKEND · LONDON</p><h3>Something fun, sorted.</h3></div><span>Prices checked 2 Aug · availability can change · anonymous views and clicks help improve these picks</span></div>
     <div className="reward-cards">{offers.map(offer => <article key={offer.title} className="reward-card">
       <div className="reward-image"><img src={offer.image} alt={offer.imageAlt} /><small>{offer.credit}</small><span>{offer.saving}</span></div>
-      <div className="reward-card-body"><p className="reward-type">{offer.type}</p><h4>{offer.title}</h4><p className="reward-location">⌖ {offer.location}</p><div className="reward-meta"><strong>{offer.price}</strong><span>✓ {offer.availability}</span></div><a href={offer.url} target="_blank" rel="noreferrer">View deal on {offer.source} <i>↗</i></a></div>
+      <div className="reward-card-body"><p className="reward-type">{offer.type}</p><h4>{offer.title}</h4><p className="reward-location">⌖ {offer.location}</p><div className="reward-meta"><strong>{offer.price}</strong><span>✓ {offer.availability}</span></div><TrackedOfferLink offerId={offer.id} placement="timesheet-reward">View deal on {offer.source} <i>↗</i></TrackedOfferLink></div>
     </article>)}</div>
   </section>;
 }
 
 function Deals({ kind }: { kind: "weekend" | "holiday" }) {
   const deals = kind === "weekend" ? [
-    { tag: "WEEKEND IDEA", icon: "🎟", title: "Comedy, cocktails & no calendar invites", copy: "Hunt down a last-minute night out near you.", source: "Wowcher", url: "https://www.wowcher.co.uk/deals/things-to-do-activities" },
-    { tag: "LOCAL ESCAPE", icon: "🧗", title: "Try something you’ll mention on Monday", copy: "Activities, food and small adventures for two.", source: "Groupon", url: "https://www.groupon.co.uk/vouchers/things-to-do" },
+    { id: "wowcher-activities", tag: "WEEKEND IDEA", icon: "🎟", title: "Comedy, cocktails & no calendar invites", copy: "Hunt down a last-minute night out near you.", source: "Wowcher" },
+    { id: "groupon-activities", tag: "LOCAL ESCAPE", icon: "🧗", title: "Try something you’ll mention on Monday", copy: "Activities, food and small adventures for two.", source: "Groupon" },
   ] : [
-    { tag: "PACK LIGHT", icon: "🌊", title: "Turn three leave days into a proper escape", copy: "Browse spontaneous city and beach breaks.", source: "lastminute.com", url: "https://www.lastminute.com/holidays/" },
-    { tag: "DEAL SPOTTED", icon: "✈", title: "The long weekend is calling", copy: "Fresh travel deals and delightfully cheap flights.", source: "HolidayPirates", url: "https://www.holidaypirates.com/" },
+    { id: "lastminute-holidays", tag: "PACK LIGHT", icon: "🌊", title: "Turn three leave days into a proper escape", copy: "Browse spontaneous city and beach breaks.", source: "lastminute.com" },
+    { id: "holidaypirates-home", tag: "DEAL SPOTTED", icon: "✈", title: "The long weekend is calling", copy: "Fresh travel deals and delightfully cheap flights.", source: "HolidayPirates" },
   ];
-  return <section className={`deals ${kind}`}><div className="deals-title"><div><p className="eyebrow">{kind === "weekend" ? "LEAVEBIRD PICKS" : "ESCAPE BOARD"}</p><h2>{kind === "weekend" ? "Make the weekend count." : "Give those leave days somewhere to go."}</h2></div><span>Handy links · not sponsored</span></div><div className="deal-cards">{deals.map(deal => <a key={deal.source} href={deal.url} target="_blank" rel="noreferrer"><div className="deal-icon">{deal.icon}</div><div><small>{deal.tag}</small><h3>{deal.title}</h3><p>{deal.copy}</p><b>Browse on {deal.source} <i>↗</i></b></div></a>)}</div></section>;
+  const placement = kind === "weekend" ? "weekend-board" : "holiday-board";
+  return <section className={`deals ${kind}`}><div className="deals-title"><div><p className="eyebrow">{kind === "weekend" ? "LEAVEBIRD PICKS" : "ESCAPE BOARD"}</p><h2>{kind === "weekend" ? "Make the weekend count." : "Give those leave days somewhere to go."}</h2></div><span>Handy links · not sponsored · anonymous views and clicks help improve these picks</span></div><div className="deal-cards">{deals.map(deal => <TrackedOfferLink key={deal.source} offerId={deal.id} placement={placement}><div className="deal-icon">{deal.icon}</div><div><small>{deal.tag}</small><h3>{deal.title}</h3><p>{deal.copy}</p><b>Browse on {deal.source} <i>↗</i></b></div></TrackedOfferLink>)}</div></section>;
 }
