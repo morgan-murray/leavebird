@@ -168,3 +168,55 @@ footer { padding:30px max(24px,calc((100vw - 1280px)/2)); background:#e6e1d5; di
   .settings-allowance-heading { align-items:stretch; flex-direction:column; }
   .settings-allowance .allowance-edit { width:100%; min-height:44px; }
 }
+
+.sheet-total { justify-content:space-between; }
+.sheet-total>div { display:flex; align-items:center; gap:22px; }
+.sheet-export-shortcut { min-height:52px; padding:8px 13px; display:flex; align-items:center; gap:10px; border:1px solid rgba(255,255,255,.25); border-radius:10px; background:rgba(255,255,255,.09); color:white; cursor:pointer; text-align:left; }
+.sheet-export-shortcut>span:first-child { width:28px; height:28px; display:grid; place-items:center; flex:none; border-radius:50%; background:var(--yellow); color:var(--ink); font-size:16px; letter-spacing:0; }
+.sheet-export-shortcut b,.sheet-export-shortcut small { display:block; }
+.sheet-export-shortcut b { font-size:11px; }
+.sheet-export-shortcut small { margin-top:2px; color:#bdcbc6; font-size:8px; }
+.sheet-export-shortcut:hover:not(:disabled) { border-color:var(--yellow); background:rgba(255,255,255,.14); }
+.sheet-export-shortcut:disabled,.csv-export-primary:disabled,.secondary-exports button:disabled { opacity:.45; cursor:not-allowed; }
+
+.timesheet-export { padding:16px; border:1px solid #a9ccbd; border-radius:13px; background:linear-gradient(135deg,#edf7f1,#f8f8ed); }
+.timesheet-export-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:11px; }
+.timesheet-export-heading span { display:block; color:var(--teal); font-size:8px; font-weight:900; letter-spacing:.12em; }
+.timesheet-export-heading h3 { margin-top:2px; font-size:17px; }
+.timesheet-export-heading>b { padding:5px 7px; border-radius:99px; background:var(--yellow); color:var(--ink); font-size:7px; letter-spacing:.08em; }
+.csv-export-primary { width:100%; min-height:66px; padding:10px 13px; display:grid; grid-template-columns:44px minmax(0,1fr) auto; align-items:center; gap:11px; border:0; border-radius:11px; background:var(--ink); color:white; cursor:pointer; text-align:left; }
+.csv-export-primary .export-file-badge { width:44px; height:44px; display:grid; place-items:center; border-radius:9px; background:var(--yellow); color:var(--ink); font-size:10px; font-weight:900; }
+.csv-export-primary strong,.csv-export-primary small { display:block; }
+.csv-export-primary strong { color:white; font-size:13px; }
+.csv-export-primary small { margin-top:3px; color:#bdcbc6; font-size:9px; }
+.csv-export-primary i { color:var(--yellow); font-size:20px; font-style:normal; }
+.csv-export-primary:hover:not(:disabled) { background:#21463e; }
+.secondary-exports { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+.secondary-exports button { min-height:43px; padding:9px 11px; display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--ink); cursor:pointer; text-align:left; }
+.secondary-exports button>span { width:27px; height:27px; display:grid; place-items:center; flex:none; border-radius:7px; background:#ece9df; color:var(--muted); font-size:8px; font-weight:900; }
+.secondary-exports button>b { font-size:9px; }
+.history-export-cue { margin-top:18px; padding:12px; display:flex; align-items:center; gap:9px; border:1px solid rgba(255,255,255,.2); border-radius:9px; color:white; font-size:10px; }
+.history-export-cue>span { color:var(--yellow); font-size:17px; }
+.history-grid>.panel { width:100%; margin-left:0; margin-right:0; }
+
+.settings-backups { margin:24px 0 0; padding:24px 0 0; border-top:1px solid var(--line); }
+.settings-backups>div:first-child>span { display:block; color:var(--teal); font-size:9px; font-weight:900; letter-spacing:.1em; }
+.settings-backups h3 { margin-top:3px; font-size:18px; }
+.settings-backups>p { max-width:520px; margin:8px 0 12px; color:var(--muted); font-size:10px; line-height:1.5; }
+.settings-backups>div:last-of-type { display:flex; flex-wrap:wrap; gap:8px; }
+.settings-backups button { min-height:42px; padding:10px 12px; border:0; border-radius:8px; background:var(--ink); color:white; cursor:pointer; font-size:9px; font-weight:800; }
+.settings-backups button.secondary { border:1px solid var(--line); background:white; color:var(--ink); }
+.sheet-export-shortcut:focus-visible,.csv-export-primary:focus-visible,.secondary-exports button:focus-visible,.settings-backups button:focus-visible { outline:3px solid rgba(45,135,120,.28); outline-offset:2px; }
+
+@media(max-width:640px) {
+  .sheet-total { align-items:stretch; flex-direction:column; gap:12px; padding:15px 12px; }
+  .sheet-total>div { justify-content:flex-end; padding:0 6px; }
+  .sheet-export-shortcut { width:100%; min-height:54px; }
+  .timesheet-export { padding:14px; }
+  .timesheet-export-heading { align-items:flex-start; flex-direction:column; }
+  .csv-export-primary { min-height:70px; }
+  .secondary-exports { grid-template-columns:1fr; }
+  .secondary-exports button { min-height:46px; }
+  .settings-backups>div:last-of-type { display:grid; grid-template-columns:1fr; }
+  .settings-backups button { width:100%; min-height:44px; }
+}

@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "db:migrate": "node scripts/migrate.mjs",
-    "test": "node --test tests/flexi.test.mjs tests/daily-chirp.test.mjs tests/allowance.test.mjs tests/layout-overflow.test.mjs tests/admin.test.mjs tests/leave-year.test.mjs tests/time-off-summary.test.mjs && npm run build",
+    "test": "node --test tests/flexi.test.mjs tests/daily-chirp.test.mjs tests/allowance.test.mjs tests/layout-overflow.test.mjs tests/admin.test.mjs tests/leave-year.test.mjs tests/time-off-summary.test.mjs tests/timesheet-export.test.mjs && npm run build",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
