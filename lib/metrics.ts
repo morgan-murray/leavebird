@@ -1,6 +1,6 @@
 import { query } from "./db";
 
-export type RouteGroup = "page" | "authentication" | "timesheet-data" | "bank-holidays" | "admin";
+export type RouteGroup = "page" | "authentication" | "timesheet-data" | "bank-holidays" | "admin" | "affiliate";
 export type ActivityKind = "authenticated-visit" | "data-update";
 export type OperationalEvent = "login" | "registration" | "admin-access" | "bank-holiday-fetch";
 

@@ -1,5 +1,7 @@
 import { getDatabaseRuntimeStats, query } from "./db";
 import { buildDailyTrend, summariseLatency, summariseTimesheets } from "./admin-core.js";
+import { summariseAffiliate } from "./affiliate-core.js";
+import { affiliateRetentionDays } from "./affiliate-metrics";
 import { metricsRetentionDays } from "./metrics";
 
 type UserRow = { id: string; created_at: Date };
@@ -7,6 +9,8 @@ type TimesheetRow = { user_id: string; data: unknown };
 type ActivityRow = { activity_date: Date; user_id: string };
 type RequestRow = { recorded_at: Date; route_group: string; status_code: number; duration_ms: number };
 type EventRow = { recorded_at: Date; event_type: string; succeeded: boolean };
+type AffiliateEventRow = { recorded_at: Date; event_type: "impression" | "click"; placement: string; offer_id: string; merchant: string };
+type AffiliateConversionRow = { occurred_at: Date; placement: string; offer_id: string; merchant: string; commission_minor: number; currency: string };
 type StorageRow = {
   database_bytes: string;
   timesheet_table_bytes: string;
@@ -14,7 +18,7 @@ type StorageRow = {
   payload_bytes: string;
   average_payload_bytes: string;
 };
-type CountRow = { users: string; sessions: string; timesheets: string; request_metrics: string };
+type CountRow = { users: string; sessions: string; timesheets: string; request_metrics: string; affiliate_events: string; affiliate_conversions: string };
 type MigrationRow = { filename: string; applied_at: Date };
 
 export type LatencySummary = {
@@ -97,7 +101,7 @@ function backupHealth(now: Date) {
   };
 }
 
-export async function getAdminDashboardData(now = new Date()) {
+export async function getAdminDashboardData(now = new Date(), affiliateFilter: { days?: number; placement?: string; merchant?: string } = {}) {
   const sevenDaysAgo = new Date(now.getTime() - 7 * DAY);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY);
   const ninetyDaysAgo = new Date(now.getTime() - 90 * DAY);
@@ -117,6 +121,8 @@ export async function getAdminDashboardData(now = new Date()) {
     storageResult,
     countsResult,
     migrationResult,
+    affiliateEventsResult,
+    affiliateConversionsResult,
     endpoint,
   ] = await Promise.all([
     query<UserRow>("SELECT id, created_at FROM users ORDER BY created_at"),
@@ -138,8 +144,14 @@ export async function getAdminDashboardData(now = new Date()) {
       (SELECT COUNT(*) FROM users)::text AS users,
       (SELECT COUNT(*) FROM sessions WHERE expires_at > NOW())::text AS sessions,
       (SELECT COUNT(*) FROM user_timesheets)::text AS timesheets,
-      (SELECT COUNT(*) FROM request_metrics)::text AS request_metrics`),
+      (SELECT COUNT(*) FROM request_metrics)::text AS request_metrics,
+      (SELECT COUNT(*) FROM affiliate_events)::text AS affiliate_events,
+      (SELECT COUNT(*) FROM affiliate_conversions)::text AS affiliate_conversions`),
     query<MigrationRow>("SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at DESC LIMIT 1"),
+    query<AffiliateEventRow>(`SELECT recorded_at, event_type, placement, offer_id, merchant
+      FROM affiliate_events WHERE recorded_at >= NOW() - INTERVAL '395 days' ORDER BY recorded_at`),
+    query<AffiliateConversionRow>(`SELECT occurred_at, placement, offer_id, merchant, commission_minor, currency
+      FROM affiliate_conversions WHERE occurred_at >= NOW() - INTERVAL '395 days' ORDER BY occurred_at`),
     publicHealth(),
   ]);
 
@@ -186,6 +198,7 @@ export async function getAdminDashboardData(now = new Date()) {
   const counts = countsResult.rows[0];
   const migration = migrationResult.rows[0];
   const dbRuntime = getDatabaseRuntimeStats();
+  const affiliate = summariseAffiliate(affiliateEventsResult.rows, affiliateConversionsResult.rows, { ...affiliateFilter, now });
 
   return {
     generatedAt: now.toISOString(),
@@ -230,6 +243,7 @@ export async function getAdminDashboardData(now = new Date()) {
       adminAccessAccepted7Days: eventCount(events, "admin-access", true, sevenDaysAgo),
       adminAccessRejected7Days: eventCount(events, "admin-access", false, sevenDaysAgo),
     },
+    affiliate,
     storage: {
       databaseBytes: asNumber(storage?.database_bytes),
       timesheetTableBytes: asNumber(storage?.timesheet_table_bytes),
@@ -240,6 +254,8 @@ export async function getAdminDashboardData(now = new Date()) {
       sessionRows: asNumber(counts?.sessions),
       timesheetRows: asNumber(counts?.timesheets),
       metricsRows: asNumber(counts?.request_metrics),
+      affiliateEventRows: asNumber(counts?.affiliate_events),
+      affiliateConversionRows: asNumber(counts?.affiliate_conversions),
     },
     health: {
       application: { status: "healthy" as const, uptimeSeconds: Math.floor(process.uptime()), startedAt: startTime.toISOString() },
@@ -255,8 +271,9 @@ export async function getAdminDashboardData(now = new Date()) {
     },
     privacy: {
       retentionDays: metricsRetentionDays,
-      collected: "Route group, response status, duration, daily authenticated activity, and aggregate operational outcomes.",
-      excluded: "Raw URLs, query values, passwords, session tokens, IP addresses, timesheet notes, leave descriptions, and comic-viewing history.",
+      affiliateRetentionDays,
+      collected: "Route group, response status, duration, daily authenticated activity, aggregate operational outcomes, and anonymous recommendation views, clicks and commission totals.",
+      excluded: "Raw URLs, query values, passwords, session tokens, IP addresses, user IDs in affiliate events, timesheet notes, leave descriptions, customer details, payment data, booking details, and comic-viewing history.",
     },
   };
 }
