@@ -195,9 +195,46 @@ footer { padding:30px max(24px,calc((100vw - 1280px)/2)); background:#e6e1d5; di
 .secondary-exports button { min-height:43px; padding:9px 11px; display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--ink); cursor:pointer; text-align:left; }
 .secondary-exports button>span { width:27px; height:27px; display:grid; place-items:center; flex:none; border-radius:7px; background:#ece9df; color:var(--muted); font-size:8px; font-weight:900; }
 .secondary-exports button>b { font-size:9px; }
+.document-error { margin:10px 0 0; color:#8d321d; font-size:9px; font-weight:700; line-height:1.45; }
+.document-error button { margin-left:4px; border:0; padding:0; background:none; color:#8d321d; cursor:pointer; font:800 9px "Manrope"; text-decoration:underline; text-underline-offset:2px; }
 .history-export-cue { margin-top:18px; padding:12px; display:flex; align-items:center; gap:9px; border:1px solid rgba(255,255,255,.2); border-radius:9px; color:white; font-size:10px; }
 .history-export-cue>span { color:var(--yellow); font-size:17px; }
 .history-grid>.panel { width:100%; margin-left:0; margin-right:0; }
+
+.billing-settings { margin:28px 0 0; padding:28px 0 0; border-top:1px solid var(--line); }
+.billing-settings-heading>span { display:block; color:var(--teal); font-size:9px; font-weight:900; letter-spacing:.1em; }
+.billing-settings-heading h3 { margin-top:3px; font-size:21px; }
+.billing-settings-heading p { max-width:560px; margin:7px 0 0; color:var(--muted); font-size:10px; line-height:1.5; }
+.billing-document-type,.billing-rate-type { margin:18px 0 0; padding:0; border:0; }
+.billing-document-type legend,.billing-rate-type legend { margin-bottom:7px; color:var(--ink); font-size:10px; font-weight:800; }
+.billing-document-type .segmented { width:min(100%,360px); }
+.billing-group { margin-top:22px; padding:18px; border:1px solid var(--line); border-radius:13px; background:#faf9f4; }
+.billing-group-heading { margin-bottom:2.5px; display:flex; align-items:baseline; gap:8px; line-height:1; }
+.billing-group-heading span { color:var(--coral); font-size:8px; font-weight:900; letter-spacing:.09em; text-transform:uppercase; }
+.billing-group-heading strong { font-size:14px; }
+.billing-group-heading+.billing-grid { padding-top:2.5px; }
+.billing-group-heading+.billing-rate-type { margin-top:3px; }
+.billing-grid { display:grid; grid-template-columns:1fr 1fr; gap:13px; align-items:start; }
+.billing-grid label { min-width:0; display:grid; grid-template-rows:28px auto; row-gap:5px; align-content:start; }
+.billing-grid label.wide { grid-column:1/-1; }
+.billing-grid label>span:first-child { min-height:28px; margin-bottom:0; display:flex; align-items:flex-end; align-content:flex-end; flex-wrap:wrap; color:var(--muted); font-size:9px; font-weight:800; line-height:1; }
+.billing-grid label>span:first-child b { margin-left:1px; color:#b5482d; font-size:10px; line-height:1; }
+.billing-grid input,.billing-grid textarea { width:100%; min-height:43px; border:1px solid var(--line); border-radius:9px; padding:9px 11px; background:white; color:var(--ink); outline:0; font:600 11px/1.4 "Manrope"; resize:vertical; }
+.billing-grid textarea { min-height:76px; }
+.billing-grid input:focus,.billing-grid textarea:focus { border-color:var(--teal); box-shadow:0 0 0 3px rgba(45,135,120,.12); }
+.billing-rate-type { width:min(100%,360px); margin-bottom:14px; }
+.money-input { display:flex; overflow:hidden; border:1px solid var(--line); border-radius:9px; background:white; }
+.money-input:focus-within { border-color:var(--teal); box-shadow:0 0 0 3px rgba(45,135,120,.12); }
+.money-input input { min-width:0; border:0; border-radius:0; box-shadow:none!important; }
+.money-input small { display:grid; place-items:center; padding:0 10px; background:var(--mint); color:var(--teal); font-size:9px; font-weight:900; }
+.vat-choice { margin:16px 0 0; padding:13px; display:flex; align-items:flex-start; gap:10px; border-radius:10px; background:var(--mint); cursor:pointer; }
+.vat-choice input { width:18px; height:18px; flex:none; accent-color:var(--teal); }
+.vat-choice strong,.vat-choice small { display:block; }
+.vat-choice strong { font-size:10px; }
+.vat-choice small { margin-top:3px; color:var(--muted); font-size:8px; line-height:1.4; }
+.vat-fields { margin-top:13px; }
+.bank-safety,.invoice-guidance { margin:0 0 13px; color:var(--muted); font-size:9px; line-height:1.45; }
+.invoice-guidance { margin:13px 0 0; }
 
 .settings-backups { margin:24px 0 0; padding:24px 0 0; border-top:1px solid var(--line); }
 .settings-backups>div:first-child>span { display:block; color:var(--teal); font-size:9px; font-weight:900; letter-spacing:.1em; }
@@ -217,6 +254,10 @@ footer { padding:30px max(24px,calc((100vw - 1280px)/2)); background:#e6e1d5; di
   .csv-export-primary { min-height:70px; }
   .secondary-exports { grid-template-columns:1fr; }
   .secondary-exports button { min-height:46px; }
+  .billing-group { padding:15px; }
+  .billing-grid { grid-template-columns:1fr; }
+  .billing-grid label,.billing-grid label.wide { grid-column:auto; grid-template-rows:auto auto; }
+  .billing-grid label>span:first-child { min-height:0; }
   .settings-backups>div:last-of-type { display:grid; grid-template-columns:1fr; }
   .settings-backups button { width:100%; min-height:44px; }
 }

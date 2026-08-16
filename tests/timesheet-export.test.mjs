@@ -38,6 +38,48 @@ test("keeps CSV first and full width on mobile", () => {
   assert.match(styles, /@media\(max-width:640px\)[\s\S]*\.sheet-export-shortcut\s*\{[^}]*width:100%/);
 });
 
+test("offers persisted timesheet and invoice PDF settings with conditional VAT", () => {
+  const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /BILLING &amp; PDF/);
+  assert.match(page, /documentType === "invoice"/);
+  assert.match(page, /Add VAT to invoices/);
+  assert.match(page, /VAT registration number/);
+  assert.match(page, /Hourly rate/);
+  assert.match(page, /Daily rate/);
+  assert.match(page, /Bank details/);
+  assert.match(page, /invoiceNumberForWeek/);
+  assert.match(page, /TOTAL DUE/);
+});
+
+test("uses accessible asterisks for required billing fields", () => {
+  const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const billingSettings = page.slice(page.indexOf('className="billing-settings"'), page.indexOf('className="settings-backups"'));
+  const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(billingSettings, />Required(?: for invoices)?</);
+  assert.match(billingSettings, /<span>Name<b aria-label="required">\*<\/b><\/span>/);
+  assert.doesNotMatch(billingSettings, /Name or business name/);
+  assert.match(billingSettings, /aria-label="required">\*<\/b>/);
+  assert.match(styles, /\.billing-grid label>span:first-child b\s*\{[^}]*color:#b5482d/);
+});
+
+test("uses the restrained classic corporate treatment for both PDFs", () => {
+  const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const navy = \[20, 42, 67\]/);
+  assert.match(page, /WEEKLY TIMESHEET/);
+  assert.match(page, /pdf\.roundedRect/);
+  assert.doesNotMatch(page, /This week, delivered/);
+});
+
+test("aligns paired billing labels and controls across every desktop row", () => {
+  const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(styles, /\.billing-group-heading\s*\{[^}]*margin-bottom:2\.5px[^}]*line-height:1;/);
+  assert.match(styles, /\.billing-group-heading\+\.billing-grid\s*\{[^}]*padding-top:2\.5px/);
+  assert.match(styles, /\.billing-group-heading\+\.billing-rate-type\s*\{[^}]*margin-top:3px/);
+  assert.match(styles, /\.billing-grid label\s*\{[^}]*display:grid[^}]*grid-template-rows:28px auto[^}]*row-gap:5px/);
+  assert.match(styles, /\.billing-grid label>span:first-child\s*\{[^}]*min-height:28px[^}]*margin-bottom:0[^}]*align-items:flex-end[^}]*line-height:1/);
+  assert.match(styles, /@media\(max-width:640px\)[\s\S]*\.billing-grid label>span:first-child\s*\{[^}]*min-height:0/);
+});
+
 test("aligns both History cards to the full-width panel below", () => {
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
