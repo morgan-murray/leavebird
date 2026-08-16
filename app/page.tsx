@@ -22,6 +22,7 @@ import {
 } from "@/lib/leave-year";
 import { countBookedLeaveDays } from "@/lib/time-off-summary";
 import { buildTimesheetCsv } from "@/lib/timesheet-export";
+import { billingValidationErrors, calculateInvoiceTotals, invoiceNumberForWeek, normaliseBilling } from "@/lib/billing";
 
 type Mode = "clock" | "hours";
 type HoursFormat = "decimal" | "hhmm";
@@ -30,17 +31,20 @@ type LeaveType = "annual" | "flexi";
 type BankHolidayDivision = "england-and-wales" | "scotland" | "northern-ireland";
 type BankHoliday = { title: string; date: string };
 type BankHolidayData = Record<BankHolidayDivision, BankHoliday[]>;
+type DocumentType = "timesheet" | "invoice";
+type RateType = "hourly" | "daily";
 type LeaveOpportunity = { id: string; title: string; start: string; end: string; totalDays: number; leaveDays: number };
 type Entry = { start: string; end: string; hours: number; breakHours: number; note: string };
 type Leave = { id: string; start: string; end: string; label: string; type: LeaveType };
 type Submission = { submittedAt: string; format: HoursFormat; grossHours: number; breakHours: number; netHours: number };
+type Billing = { documentType: DocumentType; supplierName: string; supplierAddress: string; supplierEmail: string; companyNumber: string; customerName: string; customerAddress: string; customerReference: string; invoicePrefix: string; nextInvoiceNumber: number; invoiceNumbers: Record<string, string>; paymentTermsDays: number; rateType: RateType; rate: number | null; bankAccountName: string; bankName: string; sortCode: string; accountNumber: string; iban: string; vatEnabled: boolean; vatNumber: string; vatRate: number };
 type OAuthAvailability = { google: boolean };
-type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null; contractedHoursPerDay: number | null; flexiPeriod: FlexiPeriod; leaveYearStart: string | null };
+type Store = { entries: Record<string, Entry>; leave: Leave[]; allowance: number; mode: Mode; hoursFormat: HoursFormat; employerUrl: string; bankHolidayDivision: BankHolidayDivision; submissions: Record<string, Submission>; contractedHoursPerWeek: number | null; contractedHoursPerDay: number | null; flexiPeriod: FlexiPeriod; leaveYearStart: string | null; billing: Billing };
 type User = { id: string; email: string; isAdmin: boolean };
 
 const STORAGE_KEY = "clocked-off-timesheet-v1";
 const emptyEntry = (): Entry => ({ start: "", end: "", hours: 0, breakHours: 0, note: "" });
-const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {}, contractedHoursPerWeek: null, contractedHoursPerDay: null, flexiPeriod: "monthly", leaveYearStart: null };
+const initialStore: Store = { entries: {}, leave: [], allowance: 25, mode: "clock", hoursFormat: "decimal", employerUrl: "", bankHolidayDivision: "england-and-wales", submissions: {}, contractedHoursPerWeek: null, contractedHoursPerDay: null, flexiPeriod: "monthly", leaveYearStart: null, billing: normaliseBilling() as Billing };
 const emptyBankHolidays: BankHolidayData = { "england-and-wales": [], scotland: [], "northern-ireland": [] };
 const divisionLabels: Record<BankHolidayDivision, string> = { "england-and-wales": "England & Wales", scotland: "Scotland", "northern-ireland": "Northern Ireland" };
 
@@ -53,6 +57,7 @@ function normaliseStore(value: Partial<Store>): Store {
     flexiPeriod: merged.flexiPeriod === "quarterly" ? "quarterly" : "monthly",
     leaveYearStart: normaliseLeaveYearStart(merged.leaveYearStart),
     leave: (merged.leave || []).map(item => ({ ...item, type: item.type === "flexi" ? "flexi" : "annual" })),
+    billing: normaliseBilling(merged.billing) as Billing,
   };
 }
 
@@ -154,6 +159,7 @@ export default function Home() {
   const [allowanceUpdated, setAllowanceUpdated] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [documentError, setDocumentError] = useState("");
   const [employerUrlDraft, setEmployerUrlDraft] = useState("");
   const [employerUrlError, setEmployerUrlError] = useState("");
   const [bankHolidays, setBankHolidays] = useState<BankHolidayData>(emptyBankHolidays);
@@ -349,14 +355,72 @@ export default function Home() {
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `leavebird-week-${currentWeekKey}.csv`; a.click(); URL.revokeObjectURL(url);
   };
   const downloadPdf = async () => {
+    const validationErrors = billingValidationErrors(store.billing);
+    if (validationErrors.length) { setDocumentError(validationErrors.join(" ")); return; }
+    setDocumentError("");
     const { jsPDF } = await import("jspdf"); const pdf = new jsPDF();
-    pdf.setFont("helvetica", "bold"); pdf.setFontSize(19); pdf.text("Leavebird weekly timesheet", 16, 18);
-    pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.text(`${fullDate(weekStart)} to ${fullDate(addDays(weekStart, 6))}`, 16, 27);
-    pdf.setFont("helvetica", "bold"); pdf.text(`Gross ${formattedHours(weekGross, store.hoursFormat)}   Breaks ${formattedHours(weekBreaks, store.hoursFormat)}   Payable ${formattedHours(weekTotal, store.hoursFormat)}`, 16, 37);
-    pdf.setFontSize(9); pdf.text("Day", 16, 49); pdf.text("Start", 52, 49); pdf.text("Finish", 73, 49); pdf.text("Gross", 96, 49); pdf.text("Break", 119, 49); pdf.text("Payable", 142, 49); pdf.text("Note", 167, 49);
-    pdf.setFont("helvetica", "normal");
-    weekRows().forEach((row, index) => { const y = 57 + index * 9; pdf.text(row.day.slice(0, 3), 16, y); pdf.text(row.entry.start || "-", 52, y); pdf.text(row.entry.end || "-", 73, y); pdf.text(formattedHours(row.gross, store.hoursFormat), 96, y); pdf.text(formattedHours(row.breaks, store.hoursFormat), 119, y); pdf.text(formattedHours(row.payable, store.hoursFormat), 142, y); pdf.text(row.entry.note.slice(0, 25) || "-", 167, y, { maxWidth: 28 }); });
-    pdf.save(`leavebird-week-${currentWeekKey}.pdf`);
+    const navy = [20, 42, 67] as const; const blue = [45, 106, 138] as const; const muted = [99, 115, 129] as const; const pale = [243, 246, 248] as const; const grid = [215, 224, 230] as const;
+    const text = (value: string | string[], x: number, y: number, size = 9, bold = false, colour: readonly [number, number, number] = navy) => { pdf.setFont("helvetica", bold ? "bold" : "normal"); pdf.setFontSize(size); pdf.setTextColor(...colour); pdf.text(value, x, y); };
+    const rightText = (value: string, x: number, y: number, size = 9, bold = false, colour: readonly [number, number, number] = navy) => { pdf.setFont("helvetica", bold ? "bold" : "normal"); pdf.setFontSize(size); pdf.setTextColor(...colour); pdf.text(value, x, y, { align: "right" }); };
+    const rule = (y: number) => { pdf.setDrawColor(...grid); pdf.setLineWidth(0.2); pdf.line(16, y, 194, y); };
+    const address = (value: string, maxLines = 5) => (pdf.splitTextToSize(value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).join("\n"), 78) as string[]).slice(0, maxLines);
+    const oneLine = (value: string, width = 78) => (pdf.splitTextToSize(value, width) as string[])[0] || "";
+    const periodEnd = addDays(weekStart, 6);
+    const rows = weekRows();
+
+    pdf.setFillColor(...navy); pdf.rect(0, 0, 210, 34, "F");
+    text("LEAVEBIRD", 16, 14, 9, true, [255, 255, 255]);
+    text(store.billing.documentType === "invoice" ? "INVOICE" : "WEEKLY TIMESHEET", 16, 25, 19, true, [255, 255, 255]);
+
+    if (store.billing.documentType === "invoice") {
+      const allocated = invoiceNumberForWeek(store.billing, currentWeekKey);
+      if (allocated.isNew) setStore(current => ({ ...current, billing: { ...current.billing, nextInvoiceNumber: allocated.nextInvoiceNumber, invoiceNumbers: { ...current.billing.invoiceNumbers, [currentWeekKey]: allocated.invoiceNumber } } }));
+      const issued = new Date(); const due = addDays(issued, store.billing.paymentTermsDays);
+      const totals = calculateInvoiceTotals({ rows, rateType: store.billing.rateType, rate: store.billing.rate, vatEnabled: store.billing.vatEnabled, vatRate: store.billing.vatRate });
+      const money = (value: number) => `GBP ${value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      rightText(`Invoice ${allocated.invoiceNumber}`, 194, 15, 9, true, [255, 255, 255]); rightText(`Issued ${fullDate(issued)}`, 194, 23, 9, true, [255, 255, 255]);
+
+      text("FROM", 16, 47, 7, true, blue); text(oneLine(store.billing.supplierName), 16, 55, 11, true);
+      const supplierAddress = address(store.billing.supplierAddress, 4); text(supplierAddress, 16, 61, 8, false, muted);
+      const supplierLines = supplierAddress.length;
+      let supplierY = 62 + supplierLines * 4;
+      if (store.billing.supplierEmail) { text(store.billing.supplierEmail, 16, supplierY, 8, false, muted); supplierY += 4; }
+      if (store.billing.companyNumber) text(`Company no. ${store.billing.companyNumber}`, 16, supplierY, 8, false, muted);
+      if (store.billing.vatEnabled) text(`VAT no. ${store.billing.vatNumber}`, 16, supplierY + 4, 8, false, muted);
+      text("BILL TO", 112, 47, 7, true, blue); text(oneLine(store.billing.customerName), 112, 55, 11, true); text(address(store.billing.customerAddress), 112, 61, 8, false, muted);
+
+      rule(88); text("SERVICE PERIOD", 16, 97, 7, true, blue); text(`${fullDate(weekStart)} to ${fullDate(periodEnd)}`, 16, 104, 9, true);
+      text("PAYMENT DUE", 89, 97, 7, true, blue); text(fullDate(due), 89, 104, 9, true);
+      text("REFERENCE", 151, 97, 7, true, blue); text(oneLine(store.billing.customerReference || "-", 42), 151, 104, 9, true);
+
+      const headers = [["DATE", 16], ["DESCRIPTION", 48], [store.billing.rateType === "daily" ? "DAYS" : "HOURS", 119], ["RATE", 142], ["AMOUNT", 194]] as const;
+      pdf.setFillColor(...navy); pdf.roundedRect(16, 114, 178, 11, 1.5, 1.5, "F"); headers.forEach(([label, x]) => { pdf.setFont("helvetica", "bold"); pdf.setFontSize(7); pdf.setTextColor(255, 255, 255); pdf.text(label, x, 121, x === 194 ? { align: "right" } : undefined); });
+      totals.items.forEach((row: typeof totals.items[number], index: number) => {
+        const y = 134 + index * 10; if (index % 2) { pdf.setFillColor(...pale); pdf.rect(16, y - 6.5, 178, 10, "F"); }
+        text(row.date, 16, y, 8); text(oneLine(row.entry.note || "Professional services", 68), 48, y, 8); text(store.billing.rateType === "daily" ? "1" : Number(row.payable).toFixed(2), 119, y, 8); text(money(Number(store.billing.rate)), 142, y, 8); rightText(money(row.amount), 194, y, 8); rule(y + 3.5);
+      });
+      const totalsY = 137 + Math.max(totals.items.length, 1) * 10;
+      text("Net", 145, totalsY, 8, false, muted); rightText(money(totals.net), 194, totalsY, 8);
+      let totalLineY = totalsY + 8;
+      if (store.billing.vatEnabled) { text(`VAT (${store.billing.vatRate}%)`, 145, totalLineY, 8, false, muted); rightText(money(totals.vat), 194, totalLineY, 8); totalLineY += 12; }
+      pdf.setFillColor(...pale); pdf.roundedRect(135, totalLineY - 5.5, 59, 13, 1.5, 1.5, "F"); text("TOTAL DUE", 141, totalLineY + 2, 8, true, muted); pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(...navy); pdf.text(money(totals.total), 190, totalLineY + 2, { align: "right" });
+
+      const bankY = Math.max(totalLineY + 25, 224); text("PAYMENT DETAILS", 16, bankY, 7, true, blue); text(store.billing.bankAccountName, 16, bankY + 8, 9, true); text(`${store.billing.bankName ? `${store.billing.bankName}  |  ` : ""}Sort code ${store.billing.sortCode}  |  Account ${store.billing.accountNumber}`, 16, bankY + 14, 8, false, muted); if (store.billing.iban) text(`IBAN ${store.billing.iban}`, 16, bankY + 20, 8, false, muted);
+      rule(280); text("Generated by Leavebird", 16, 287, 7, true, blue); rightText(`Invoice ${allocated.invoiceNumber}`, 194, 287, 7, false, muted);
+      pdf.save(`${allocated.invoiceNumber.replace(/[^a-z0-9_-]+/gi, "-")}.pdf`);
+      return;
+    }
+
+    rightText(`${fullDate(weekStart)} to ${fullDate(periodEnd)}`, 194, 15, 9, true, [255, 255, 255]); rightText(store.billing.customerReference ? `Reference  ${store.billing.customerReference}` : "", 194, 23, 9, false, [255, 255, 255]);
+    text("SUBMITTED BY", 16, 47, 7, true, blue); text(oneLine(store.billing.supplierName), 16, 56, 11, true); if (store.billing.supplierEmail) text(oneLine(store.billing.supplierEmail), 16, 63, 8, false, muted);
+    text("ADDRESSED TO", 112, 47, 7, true, blue); text(oneLine(store.billing.customerName), 112, 56, 11, true); text(address(store.billing.customerAddress), 112, 63, 8, false, muted);
+    text("TIME ENTRIES", 16, 92, 7, true, blue); pdf.setFillColor(...navy); pdf.roundedRect(16, 97, 178, 11, 1.5, 1.5, "F");
+    [["DATE", 16], ["START", 51], ["FINISH", 72], ["GROSS", 94], ["BREAK", 116], ["PAYABLE", 138], ["NOTES", 159]].forEach(([label, x]) => text(String(label), Number(x), 104, 7, true, [255, 255, 255]));
+    rows.forEach((row, index) => { const y = 117 + index * 10; if (index % 2) { pdf.setFillColor(...pale); pdf.rect(16, y - 6.5, 178, 10, "F"); } text(row.date, 16, y, 8); text(row.entry.start || "-", 51, y, 8); text(row.entry.end || "-", 72, y, 8); text(formattedHours(row.gross, store.hoursFormat), 94, y, 8); text(formattedHours(row.breaks, store.hoursFormat), 116, y, 8); text(formattedHours(row.payable, store.hoursFormat), 138, y, 8); text(oneLine(row.entry.note || "-", 33), 159, y, 7.5); rule(y + 3.5); });
+    text("Declaration", 16, 203, 8, true); text("I confirm that the hours above are a true record of work completed.", 16, 211, 8, false, muted); pdf.line(16, 231, 86, 231); text("Submitter signature / date", 16, 237, 7, false, muted);
+    pdf.setFillColor(...pale); pdf.roundedRect(112, 196, 82, 25, 2, 2, "F"); text("TOTAL PAYABLE", 117, 206, 7, true, muted); pdf.setFont("helvetica", "bold"); pdf.setFontSize(18); pdf.setTextColor(...navy); pdf.text(formattedHours(weekTotal, store.hoursFormat), 190, 212, { align: "right" });
+    rule(280); text("Generated by Leavebird", 16, 287, 7, true, blue); rightText("Weekly timesheet", 194, 287, 7, false, muted);
+    pdf.save(`leavebird-timesheet-${currentWeekKey}.pdf`);
   };
   const markSubmitted = () => {
     if (!weekReady) return;
@@ -369,6 +433,7 @@ export default function Home() {
     setStore(current => ({ ...current, employerUrl: url })); setEmployerUrlDraft(url); setEmployerUrlError("");
   };
   const removeEmployerUrl = () => { setStore(current => ({ ...current, employerUrl: "" })); setEmployerUrlDraft(""); setEmployerUrlError(""); };
+  const updateBilling = (patch: Partial<Billing>) => { setDocumentError(""); setStore(current => ({ ...current, billing: { ...current.billing, ...patch } })); };
   const dismissDailyChirp = () => {
     try { localStorage.setItem(chirpDismissalKey, "1"); } catch { /* dismissal remains in memory for this visit */ }
     setChirpVisible(false);
@@ -461,7 +526,8 @@ export default function Home() {
             <section className="timesheet-export" aria-labelledby="timesheet-export-heading">
               <div className="timesheet-export-heading"><div><span>EXPORT THIS WEEK</span><h3 id="timesheet-export-heading">Choose a file for your employer</h3></div><b>RECOMMENDED</b></div>
               <button type="button" className="csv-export-primary" onClick={downloadCsv} disabled={weekGross === 0}><span className="export-file-badge">CSV</span><span><strong>Download spreadsheet (.CSV)</strong><small>Opens in Excel, Google Sheets and Numbers</small></span><i aria-hidden="true">↓</i></button>
-              <div className="secondary-exports"><button type="button" onClick={downloadPdf} disabled={weekGross === 0}><span>PDF</span><b>Download printable PDF</b></button><button type="button" onClick={copyWeek} disabled={weekGross === 0}><span>⌘</span><b>{copyStatus === "copied" ? "Copied timesheet rows ✓" : copyStatus === "error" ? "Copy failed — try again" : "Copy timesheet rows"}</b></button></div>
+              <div className="secondary-exports"><button type="button" onClick={downloadPdf} disabled={weekGross === 0}><span>PDF</span><b>{store.billing.documentType === "invoice" ? "Download invoice PDF" : "Download printable timesheet"}</b></button><button type="button" onClick={copyWeek} disabled={weekGross === 0}><span>⌘</span><b>{copyStatus === "copied" ? "Copied timesheet rows ✓" : copyStatus === "error" ? "Copy failed — try again" : "Copy timesheet rows"}</b></button></div>
+              {documentError && <p className="document-error" role="alert">{documentError} <button type="button" onClick={() => setTab("settings")}>Open billing settings</button></p>}
             </section>
             <div className="employer-shortcut"><div><span>Employer timesheet</span><small>Save the web address only — Leavebird never stores your employer login details.</small></div><div className="employer-url-controls"><input type="text" inputMode="url" aria-label="Employer timesheet web address" value={employerUrlDraft} placeholder="timesheets.your-employer.com" onChange={event => { setEmployerUrlDraft(event.target.value); setEmployerUrlError(""); }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); saveEmployerUrl(); } }} /><button type="button" onClick={saveEmployerUrl}>{savedEmployerUrl ? "Update link" : "Save link"}</button>{savedEmployerUrl && <button type="button" className="remove" onClick={removeEmployerUrl}>Remove</button>}</div>{employerUrlError && <p role="alert">{employerUrlError}</p>}</div>
             <div className="completion-actions">{savedEmployerUrl && <a className="employer-open" href={savedEmployerUrl} target="_blank" rel="noopener noreferrer">Open employer timesheet ↗</a>}{currentSubmission ? <button className="primary reopen" onClick={reopenWeek}>Reopen week</button> : <button className="primary" onClick={markSubmitted} disabled={!weekReady}>Mark as submitted ✓</button>}</div>
@@ -533,6 +599,56 @@ export default function Home() {
               <div className="segmented"><button type="button" className={store.flexiPeriod === "monthly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "monthly" }))}>Monthly</button><button type="button" className={store.flexiPeriod === "quarterly" ? "selected" : ""} onClick={() => setStore(current => ({ ...current, flexiPeriod: "quarterly" }))}>Quarterly</button></div>
             </fieldset>
             <p id="contracted-hours-help" className="settings-help">Daily hours are used when you book flexi leave. Everything is saved securely to your account.</p>
+            <section className="billing-settings" aria-labelledby="billing-settings-heading">
+              <div className="billing-settings-heading"><span>BILLING &amp; PDF</span><h3 id="billing-settings-heading">Document details</h3><p>Choose a simple addressed timesheet or a full invoice. These details are saved securely with your Leavebird data.</p></div>
+              <fieldset className="billing-document-type">
+                <legend>PDF type</legend>
+                <div className="segmented"><button type="button" className={store.billing.documentType === "timesheet" ? "selected" : ""} onClick={() => updateBilling({ documentType: "timesheet" })}>Timesheet</button><button type="button" className={store.billing.documentType === "invoice" ? "selected" : ""} onClick={() => updateBilling({ documentType: "invoice" })}>Invoice</button></div>
+              </fieldset>
+              <div className="billing-group">
+                <div className="billing-group-heading"><span>From</span><strong>Your details</strong></div>
+                <div className="billing-grid">
+                  <label><span>Name<b aria-label="required">*</b></span><input type="text" value={store.billing.supplierName} onChange={event => updateBilling({ supplierName: event.target.value })} placeholder="Alex Morgan or Example Ltd" /></label>
+                  <label><span>Contact email{store.billing.documentType === "invoice" && <b aria-label="required">*</b>}</span><input type="email" value={store.billing.supplierEmail} onChange={event => updateBilling({ supplierEmail: event.target.value })} placeholder="accounts@example.com" /></label>
+                  <label className="wide"><span>Your business address{store.billing.documentType === "invoice" && <b aria-label="required">*</b>}</span><textarea rows={3} value={store.billing.supplierAddress} onChange={event => updateBilling({ supplierAddress: event.target.value })} placeholder={"14 Market Street\nLondon EC2A 4NE\nUnited Kingdom"} /></label>
+                  {store.billing.documentType === "invoice" && <label><span>Company number</span><input type="text" value={store.billing.companyNumber} onChange={event => updateBilling({ companyNumber: event.target.value })} placeholder="Optional" /></label>}
+                </div>
+              </div>
+              <div className="billing-group">
+                <div className="billing-group-heading"><span>To</span><strong>Customer details</strong></div>
+                <div className="billing-grid">
+                  <label><span>Customer name<b aria-label="required">*</b></span><input type="text" value={store.billing.customerName} onChange={event => updateBilling({ customerName: event.target.value })} placeholder="Customer or organisation" /></label>
+                  <label><span>Reference</span><input type="text" value={store.billing.customerReference} onChange={event => updateBilling({ customerReference: event.target.value })} placeholder="PO, employee or contractor number" /></label>
+                  <label className="wide"><span>Customer address<b aria-label="required">*</b></span><textarea rows={3} value={store.billing.customerAddress} onChange={event => updateBilling({ customerAddress: event.target.value })} placeholder={"Accounts Payable\n14 Market Street\nLondon EC2A 4NE"} /></label>
+                </div>
+              </div>
+              {store.billing.documentType === "invoice" && <>
+                <div className="billing-group">
+                  <div className="billing-group-heading"><span>Charges</span><strong>Invoice calculation</strong></div>
+                  <fieldset className="billing-rate-type"><legend>Charge by</legend><div className="segmented"><button type="button" className={store.billing.rateType === "hourly" ? "selected" : ""} onClick={() => updateBilling({ rateType: "hourly" })}>Hourly rate</button><button type="button" className={store.billing.rateType === "daily" ? "selected" : ""} onClick={() => updateBilling({ rateType: "daily" })}>Daily rate</button></div></fieldset>
+                  <div className="billing-grid">
+                    <label><span>{store.billing.rateType === "daily" ? "Daily" : "Hourly"} rate<b aria-label="required">*</b></span><span className="money-input"><small>GBP</small><input type="number" min="0.01" step="0.01" inputMode="decimal" value={store.billing.rate ?? ""} onChange={event => updateBilling({ rate: event.target.value === "" ? null : Number(event.target.value) })} placeholder={store.billing.rateType === "daily" ? "400.00" : "50.00"} /></span></label>
+                    <label><span>Payment terms</span><span className="money-input"><input type="number" min="0" step="1" inputMode="numeric" value={store.billing.paymentTermsDays} onChange={event => updateBilling({ paymentTermsDays: Math.max(0, Number(event.target.value) || 0) })} /><small>days</small></span></label>
+                    <label><span>Invoice prefix<b aria-label="required">*</b></span><input type="text" maxLength={20} value={store.billing.invoicePrefix} onChange={event => updateBilling({ invoicePrefix: event.target.value })} placeholder="INV-" /></label>
+                    <label><span>Next invoice number</span><input type="number" min="1" step="1" inputMode="numeric" value={store.billing.nextInvoiceNumber} onChange={event => updateBilling({ nextInvoiceNumber: Math.max(1, Number(event.target.value) || 1) })} /></label>
+                  </div>
+                  <label className="vat-choice"><input type="checkbox" checked={store.billing.vatEnabled} onChange={event => updateBilling({ vatEnabled: event.target.checked })} /><span><strong>Add VAT to invoices</strong><small>Only enable this if you are VAT registered and the supply is taxable.</small></span></label>
+                  {store.billing.vatEnabled && <div className="billing-grid vat-fields"><label><span>VAT registration number<b aria-label="required">*</b></span><input type="text" value={store.billing.vatNumber} onChange={event => updateBilling({ vatNumber: event.target.value })} placeholder="GB 123 4567 89" /></label><label><span>VAT rate</span><span className="money-input"><input type="number" min="0" step="0.1" inputMode="decimal" value={store.billing.vatRate} onChange={event => updateBilling({ vatRate: Math.max(0, Number(event.target.value) || 0) })} /><small>%</small></span></label></div>}
+                </div>
+                <div className="billing-group">
+                  <div className="billing-group-heading"><span>Payment</span><strong>Bank details</strong></div>
+                  <p className="bank-safety">Bank details appear on every generated invoice. Check them carefully before sharing a PDF.</p>
+                  <div className="billing-grid">
+                    <label><span>Account name<b aria-label="required">*</b></span><input type="text" value={store.billing.bankAccountName} onChange={event => updateBilling({ bankAccountName: event.target.value })} /></label>
+                    <label><span>Bank name</span><input type="text" value={store.billing.bankName} onChange={event => updateBilling({ bankName: event.target.value })} /></label>
+                    <label><span>Sort code<b aria-label="required">*</b></span><input type="text" inputMode="numeric" value={store.billing.sortCode} onChange={event => updateBilling({ sortCode: event.target.value })} placeholder="00-00-00" /></label>
+                    <label><span>Account number<b aria-label="required">*</b></span><input type="text" inputMode="numeric" value={store.billing.accountNumber} onChange={event => updateBilling({ accountNumber: event.target.value })} placeholder="12345678" /></label>
+                    <label className="wide"><span>IBAN</span><input type="text" value={store.billing.iban} onChange={event => updateBilling({ iban: event.target.value })} placeholder="Optional for international payments" /></label>
+                  </div>
+                </div>
+                <p className="invoice-guidance">Invoice numbers are allocated once per week and reused when that week&apos;s PDF is downloaded again. Amounts are calculated in GBP from payable hours or worked days.</p>
+              </>}
+            </section>
             <section className="settings-backups" aria-labelledby="settings-backups-heading">
               <div><span>DATA &amp; BACKUPS</span><h3 id="settings-backups-heading">Your Leavebird data</h3></div>
               <p>JSON is a private Leavebird backup for restoring your records later. It is not a timesheet for your employer.</p>
